@@ -25,10 +25,9 @@ y = df["Score"]
 print(X.head(3))
 print(y.head(3))
 
-
 # Apply SMOTE before split (generally incorrect, but accurate replication)
-# smote = SMOTE(sampling_strategy='minority', random_state=42)
-# X,y = smote.fit_resample(X,y)
+smote = SMOTE(sampling_strategy='minority', random_state=42)
+X,y = smote.fit_resample(X,y)
 
-# print(X.head(3))
-# print(y.head(3))
+print(X.head(3))
+print(y.head(3))
