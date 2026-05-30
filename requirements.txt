@@ -1,0 +1,80 @@
+# ============================================================
+# requirements.txt
+#
+# System:  Linux Mint 22.2 (Ubuntu 24.04 base)
+# GPU:     NVIDIA GeForce RTX 2070 (Turing SM 7.5)
+# CUDA:    13.0 (driver-reported); PyTorch cu130 wheels used
+# Python:  3.10 or 3.11 recommended (3.12+ not fully tested
+#          across all dependencies below)
+#
+# Setup (run these commands in order):
+#   # 0. Create and Activate Venv
+#   python3.11 -m venv venv
+#   source venv/bin/activate
+#
+#   # 1. Install PyTorch with CUDA 13.0 wheels first,
+#   #    separately, before all other packages:
+#   pip install torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0 --index-url https://download.pytorch.org/whl/cu130
+#
+#   # 2. Verify GPU is visible before continuing:
+#   python -c "import torch, torchvision, torchaudio; print(torch.__version__, torch.cuda.is_available())"
+#
+#   # 3. Install the rest:
+#   pip install -r requirements.txt
+#
+# NOTE: torch/torchvision/torchaudio are intentionally omitted
+# from this file because they require the --index-url flag that
+# pip cannot express inside requirements.txt. Install them with
+# the explicit command above.
+# ============================================================
+ 
+ 
+# --- Deep learning: TensorFlow / Keras backend ---
+tensorflow==2.21.0
+keras==3.14.1
+ 
+# Tokenizer backend (transformers and keras NLP)
+tokenizers==0.23.1
+ 
+# Mixed-precision and distributed training utilities
+accelerate==1.13.0
+ 
+ 
+# --- NLP preprocessing ---
+# tokenization, lemmatization, stop word removal, POS tagging
+nltk==3.9.4
+ 
+# Word2Vec embeddings
+gensim==4.4.0
+ 
+# --- Class imbalance ---
+# SMOTE implementation.
+imbalanced-learn==0.14.1
+ 
+# --- Core data stack ---
+numpy==2.2.6
+pandas==2.2.3
+scipy==1.15.3
+joblib==1.5.1
+ 
+# --- Machine learning utilities ---
+# performance metrics including accuracy, F1, precision, recall, ROC-AUC,
+# & confusion matrix. Also used for train/val/test splitting.
+scikit-learn==1.7.1
+ 
+ 
+# --- Visualisation and figure generation ---
+# training curves, ROC curves,confusion matrices,
+# per-class F1 bar charts (Phase 4)
+matplotlib==3.10.5
+seaborn==0.13.2
+scikit-plot==0.3.7
+ 
+ 
+# --- Experiment tracking ---
+# Logs training metrics per epoch; accessible at
+# localhost:6006 via: tensorboard --logdir=results/logs
+tensorboard==2.19.0
+ 
+# Progress bars for training loops and data loading
+tqdm==4.67.1
