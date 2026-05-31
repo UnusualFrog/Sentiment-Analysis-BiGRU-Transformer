@@ -140,7 +140,7 @@ stop_words = set(stopwords.words('english'))
 # Apply full text preprocessing, including, lowercasing, removal of URLs, 
 #   hashtags, @ mentions, punctuation & non alphabetic charcaters, 
 #   word tokenization, stop word removal, single character and token removal
-def preprocess(text: str) -> list:
+def preprocess(text):
     # 1. Lowercase
     text = text.lower()
     # 2. Remove URLs
@@ -169,3 +169,129 @@ y_resampled = y_resampled[mask.values]
  
 print(f"Samples after preprocessing: {len(tokenized)}")
 print(f"\nSample preprocessed tokens (row 0):\n  {tokenized.iloc[0][:15]}")
+
+# ==================== Word2Vec Embeddings ====================
+# NOTE: In the flawed baseline, Word2Vec is (erroneously) trained on the full pre-split dataset
+ 
+print("\nTraining Word2Vec on full resampled corpus (before split)...")
+# 100d vector for every word
+W2V_DIM      = 100
+# 5 words of surrounding context per word
+W2V_WINDOW   = 5
+# Words appearing less than twice are considered noise and are filtered out
+W2V_MINCOUNT = 2
+ 
+# Construct embedding vocabulary linking semantically related words
+#   for downstream consumption by BiGRU
+w2v_model = Word2Vec(
+    sentences   = tokenized.tolist(),
+    vector_size = W2V_DIM,
+    window      = W2V_WINDOW,
+    min_count   = W2V_MINCOUNT,
+    workers     = 4,
+    sg          = 0,
+)
+
+vocab_size = len(w2v_model.wv)
+print(f"Word2Vec vocabulary size: {vocab_size}")
+
+# ==================== Vocabulary Index & Embedding Matrix ====================
+# Reserve index 0 and 1 for padding and UNK tokens respectively
+PAD_IDX = 0
+UNK_IDX = 1
+ 
+# Map each word in vocab to unique integer for downstream BiGRU consumption
+word2idx = {word: idx + 2 for idx, word in enumerate(w2v_model.wv.index_to_key)}
+
+# Generate a lookup matrix of size equal to the vocabulary + 2 for reserved tokens
+embedding_matrix = np.zeros((vocab_size + 2, W2V_DIM), dtype=np.float32)
+# Map each word's matrix to a row in the embedding matrix
+#   allowing lookup of a word's matrix by index
+for word, idx in word2idx.items():
+    embedding_matrix[idx] = w2v_model.wv[word]
+ 
+print(f"Embedding matrix shape: {embedding_matrix.shape}")
+
+# ==================== Encode & Pad Sequences ====================
+ 
+# Generate a list of indexes corresponding to each word in the vocabulary
+# words not found in the vocabulary are replaced with the index 1, respresenting the UNK token
+def encode(tokens):
+    return [word2idx.get(tok, UNK_IDX) for tok in tokens]
+
+encoded_sequences = tokenized.apply(encode)
+ 
+# Get length of each seqeuence
+lengths = encoded_sequences.apply(len)
+
+# Set max length as 95% of the longest seqeunce
+MAX_LEN = int(np.percentile(lengths, 95))
+
+# Show range of sequence lengths
+print(f"\nSequence length — min: {lengths.min()}, "
+      f"mean: {lengths.mean():.0f}, 95th pct: {MAX_LEN}, max: {lengths.max()}")
+
+# Pads or truncates a sequence until it reaches max length
+def pad_or_truncate(seq, max_len):
+    # truncate long sequences
+    seq = seq[:max_len]
+
+    # pad short sequences to max length
+    return seq + [PAD_IDX] * (max_len - len(seq))
+
+# Apply pad_or_truncate to all seqeunces
+X_padded = np.array(
+    [pad_or_truncate(seq, MAX_LEN) for seq in encoded_sequences],
+    dtype=np.int64
+)
+# Convert the target into the same matrix format
+y_array = np.array(y_resampled, dtype=np.int64)
+ 
+print(f"\nFinal padded input shape : {X_padded.shape}")
+print(f"Final label array shape  : {y_array.shape}")
+
+# ==================== Train / Test Split ====================
+# validation set and random_state omitted to replicates the paper's missing seed
+ 
+# 70/25 train/test split 
+X_train, X_test, y_train, y_test = train_test_split(
+    X_padded, y_array,
+    test_size=0.25
+)
+ 
+print(f"\nTrain size : {len(X_train)}")
+print(f"Test size  : {len(X_test)}")
+ 
+ 
+# Loop through the train and test sets and display the class distribution for each seperately
+for split_name, split_y in [("Train", y_train), ("Test", y_test)]:
+    print(f"\n{split_name} class distribution:")
+    for cls, label in zip([0, 1, 2], ['Negative', 'Neutral', 'Positive']):
+        print(f"  {label}: {(split_y == cls).sum()}")
+
+# ==================== PyTorch Dataset & DataLoader ====================
+
+# Wrapper class for exposing tensors attributes through a streamlined interface
+class ReviewDataset(Dataset):
+    def __init__(self, X, y):
+        self.X = torch.tensor(X, dtype=torch.long)
+        self.y = torch.tensor(y, dtype=torch.long)
+    
+    # Get count of total samples
+    def __len__(self) -> int:
+        return len(self.y)
+    
+    # Get the sequence corresponding to the provided word index
+    def __getitem__(self, idx: int):
+        return self.X[idx], self.y[idx]
+
+
+BATCH_SIZE = 64
+ 
+train_loader = DataLoader(ReviewDataset(X_train, y_train), batch_size=BATCH_SIZE, shuffle=True)
+test_loader  = DataLoader(ReviewDataset(X_test,  y_test),  batch_size=BATCH_SIZE, shuffle=False)
+ 
+print(f"\nTrain batches : {len(train_loader)}")
+print(f"Test batches  : {len(test_loader)}")
+print("\n========= Preprocessing complete — ready for model definition =========")
+
