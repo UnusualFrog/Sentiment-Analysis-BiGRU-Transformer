@@ -14,6 +14,7 @@ import re
 import pandas as pd
 import numpy as np
 import torch
+import torch.nn as nn
 import nltk
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
@@ -24,7 +25,6 @@ from imblearn.over_sampling import SMOTE
 from gensim.models import Word2Vec
 from torch.utils.data import Dataset, DataLoader
 
-
 # Download required NLTK resources (safe to re-run; skips if already present)
 nltk.download('punkt', quiet=True)
 nltk.download('punkt_tab', quiet=True)
@@ -33,6 +33,7 @@ nltk.download('wordnet', quiet=True)
 nltk.download('averaged_perceptron_tagger', quiet=True)
 
 print("========= CP4140 - Sentiment Analysis BiGRU Transformer =========")
+print("---------- Flawed Baseline ----------")
 print("GPU active: ", torch.cuda.is_available())
 print("\n")
 
@@ -43,11 +44,6 @@ df = pd.read_csv('data/Reviews.csv')
 # Display dataset info and sample rows
 df.info()
 print(f"\n{df.head(3)}")
-
-# Drop duplicate reviews (different users, same text content)
-print(f"\nRows before de-duplication: {len(df)}")
-df = df.drop_duplicates(subset='Text')
-print(f"Rows after de-duplication: {len(df)}")
 
 # Drop irrelevant features
 df = df.drop(["Id", "ProductId", "UserId", "ProfileName", "HelpfulnessNumerator", "HelpfulnessDenominator", "Time", "Summary"], axis=1)
@@ -175,9 +171,9 @@ print(f"\nSample preprocessed tokens (row 0):\n  {tokenized.iloc[0][:15]}")
  
 print("\nTraining Word2Vec on full resampled corpus (before split)...")
 # 100d vector for every word
-W2V_DIM      = 100
+W2V_DIM = 100
 # 5 words of surrounding context per word
-W2V_WINDOW   = 5
+W2V_WINDOW = 5
 # Words appearing less than twice are considered noise and are filtered out
 W2V_MINCOUNT = 2
  
@@ -293,5 +289,104 @@ test_loader  = DataLoader(ReviewDataset(X_test,  y_test),  batch_size=BATCH_SIZE
  
 print(f"\nTrain batches : {len(train_loader)}")
 print(f"Test batches  : {len(test_loader)}")
-print("\n========= Preprocessing complete — ready for model definition =========")
+print("\n========= Preprocessing Complete =========")
 
+ 
+# ==================== Model Definition ====================
+
+# BiGRU-LSTM Architecture with word embeddings vocabulary
+class BiGRULSTM(nn.Module):
+    def __init__(self, embedding_matrix, hidden_dim, lstm_dim, num_classes, dropout):
+        # Inherit properties from the base PyTorch neural network class
+        super(BiGRULSTM, self).__init__()
+
+        # Get vocab size and dimensions
+        vocab_size, embed_dim = embedding_matrix.shape
+ 
+        # Embedding layer initialised with pre-trained Word2Vec vocabulary weights
+        self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=PAD_IDX)
+
+        # Unfreeze the embedding layer to allow for fine-tuning during training
+        self.embedding.weight = nn.Parameter(torch.tensor(embedding_matrix, dtype=torch.float32), requires_grad=True)
+ 
+        # BiGRU layer processes the embedded sequence in both forward and backwards directions to capture broad word context
+        self.bigru = nn.GRU(
+            input_size=embed_dim,
+            hidden_size=hidden_dim,
+            batch_first=True,
+            bidirectional=True
+        )
+ 
+        # LSTM layer receives the full BiGRU output sequence
+        # input size multiplied by 2 to account for forwards & backwards processing done in BiGRU
+        self.lstm = nn.LSTM(
+            input_size=hidden_dim * 2,
+            hidden_size=lstm_dim,
+            batch_first=True
+        )
+
+        # Apply dropout layer before classification for regularization
+        self.dropout = nn.Dropout(dropout)
+ 
+        # Dense output layer maps the LSTM final hidden state to class logits (softmax is auto-applied by CEL)
+        self.fc = nn.Linear(lstm_dim, num_classes)
+ 
+    def forward(self, x):
+        #BiGRU batch_first means x = (batch, seq_len)
+        
+        # dropout applied after embeddings layer to prevent overfitting on vocabulary
+        embedded = self.dropout(self.embedding(x))
+
+        # apply BiGRU to embedding output
+        gru_out, _ = self.bigru(embedded)
+
+        # apply dropout to BiGRU output
+        gru_out = self.dropout(gru_out)
+
+        # apply LSTM and capture only the final hidden state
+        _, (h_n, _) = self.lstm(gru_out)
+
+        # convert hidden state output to (batch, lstm_dim)
+        h_n = h_n.squeeze(0)
+
+        # apply dropout before classification
+        out = self.dropout(h_n)
+        # compute raw logits (softmax applied by CEL)
+        logits = self.fc(out)
+ 
+        return logits
+ 
+ 
+# ==================== Model Initialisation ====================
+
+# Hyperparameters (mostly unspecified in the original work, assumed architecture for replication)
+HIDDEN_DIM = 128    # GRU units per direction (128 forwards, 128 backwards = 256 total)
+LSTM_DIM = 128      # LSTM hidden state unit count
+NUM_CLASSES = 3     # 3-class sentiment classification 
+DROPOUT = 0.3       # 30% dropout rate (not specified)
+EPOCHS = 10         # 10 Training epochs
+LR = 1e-3           # common baseline learning rate (not specified)
+
+# Verify GPU available before training
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f"Training on: {device}")
+
+# Initialize model with hyperparameters on the GPU
+model = BiGRULSTM(
+    embedding_matrix=embedding_matrix,
+    hidden_dim=HIDDEN_DIM,
+    lstm_dim=LSTM_DIM,
+    num_classes=NUM_CLASSES,
+    dropout=DROPOUT
+).to(device)
+ 
+print(model)
+print(f"\nTrainable parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
+ 
+# Cross Entropy used for Loss (Softmax applied internally)
+criterion = nn.CrossEntropyLoss()
+ 
+# Adam optimiser (assumed based on common practicces and reference in original work's literature review)
+optimizer = torch.optim.Adam(model.parameters(), lr=LR)
+ 
+print("\n========= Model Initialised — Ready for Training =========")
