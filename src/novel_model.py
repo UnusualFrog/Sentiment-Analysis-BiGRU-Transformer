@@ -412,4 +412,37 @@ print(f"Val batches   : {len(val_loader)}")
 print(f"Test batches  : {len(test_loader)}")
 print("\n========= Preprocessing Complete =========")
 
+# ==================== Model Definition ====================
+ 
+# Scaled dot-product self-attention over the full BiGRU output sequence.
+# For each position, attention weights are computed across all other positions,
+# allowing the model to focus on sentiment-relevant words regardless of where
+# they appear in the sequence — a principled improvement over using only the
+# LSTM final hidden state.
 
+# Self Attention over the BiGRU output seqeunce to compute the attention weights of words in each sequence
+# IMPROVEMENT: this is an imporvement over the original work's LTSM head which used the final hidden state
+#               which can reduce the signal of early tokens in a sequence. Self attention solves this by
+#               calculating attention weights for each token with all other tokens pair-wise
+class SelfAttention(nn.Module):
+    def __init__(self, input_dim, num_heads):
+        # Inherit properties from the base PyTorch neural network class
+        super(SelfAttention, self).__init__()
+
+        # Multihead splits BiGRU input to learn different token dependency relationships
+        self.attention = nn.MultiheadAttention(
+            embed_dim=input_dim,
+            num_heads=num_heads,
+            batch_first=True
+        )
+ 
+    def forward(self, x, key_padding_mask=None):
+        # Query, key, and value are all the same BiGRU output sequence (self-attention)
+        attn_out, attn_weights = self.attention(
+            query=x, # attention goal (co-relevance of keys)
+            key=x, # keys (word tokens) to be compared
+            value=x, # co-relevance values
+            key_padding_mask=key_padding_mask
+        )
+
+        return attn_out, attn_weights
