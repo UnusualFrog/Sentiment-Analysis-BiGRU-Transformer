@@ -5,7 +5,11 @@ venv/
 # VS Code environement
 .vscode/
 
-# Data
+# Training Data
 data/
 
+# Model results
 results/
+
+# Trained models
+models/
