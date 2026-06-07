@@ -3,7 +3,7 @@ baseline_flawed.py
 ==================
 
 This script replicates the work in Atlas et al. (2025) including several metholodgical errors:
-  - SMOTE applied to the full dataset BEFORE the train/test split
+  - SMOTE and word embeddings applied to the full dataset BEFORE the train/test split
   - No validation set (75/25 train/test only)
   - No fixed random seed (Omitted from the original paper)
  
@@ -13,6 +13,7 @@ The goal of this script is to demonstrate how data leakage can cause
  
 import re
 import os
+import gc
 from datetime import datetime
 import pandas as pd
 import numpy as np
@@ -78,15 +79,24 @@ print(df['Sentiment'].value_counts())
 X_text = df['Text']
 y = df['Sentiment']
 
-# # ==================== SMOTE Data Augmentation ====================
+# Delete the dataframe and reclaim memory
+del df
+gc.collect()
+
+# ==================== SMOTE Data Augmentation ====================
 # Apply TF-IDF to convert text to numeric vectors which can be processed by SMOTE; NOTE: TF-IDF is not used for feature extraction
 print("\nVectorizing text with TF-IDF for SMOTE input...")
-# NOTE: Limited max_features value had to be used due to memory constraints
-vectorizer = TfidfVectorizer(max_features=1000)
+# NOTE: max features=500 and float32 were chosen to adhere to memory constraints of hardware used  
+vectorizer = TfidfVectorizer(max_features=500, dtype=np.float32)
 X_tfidf = vectorizer.fit_transform(X_text)
 
 # Convert TF-IDF matrix to dense vector for SMOTE processing
 X_dense = X_tfidf.toarray()
+
+# Free the sparse matrix to save memory
+del X_tfidf
+gc.collect()
+
 print(f"TF-IDF matrix shape: {X_dense.shape}")
 
 
@@ -94,6 +104,10 @@ print(f"TF-IDF matrix shape: {X_dense.shape}")
 print("\nApplying SMOTE to full dataset (before split)...")
 smote = SMOTE(sampling_strategy='not majority')
 X_resampled, y_resampled = smote.fit_resample(X_dense, y)
+
+# Free X_dense for memory now that SMOTE is complete
+del smote
+gc.collect()
  
 print(f"\nClass distribution after SMOTE:")
 unique, counts = np.unique(y_resampled, return_counts=True)
@@ -116,6 +130,10 @@ print("\nReconstructing text sequences from resampled matrix...")
 n_original = len(X_text)
 X_text_reset = X_text.reset_index(drop=True)
 y_original = y.reset_index(drop=True).values
+
+# Free the original X_text and y series — X_text_reset and y_original are the working copies
+del X_text, y
+gc.collect()
  
 # for each class, build an array of original row indices for that class
 class_indices = {
@@ -134,8 +152,15 @@ for i in range(len(X_resampled)):
         cls = y_resampled[i]
         rand_idx = np.random.choice(class_indices[cls])
         resampled_texts.append(X_text_reset.iloc[rand_idx])
- 
+
+# Free the numerical resampled matrix for memory
+del X_resampled, X_text_reset, class_indices, y_original
+gc.collect()
+
 X_text_resampled = pd.Series(resampled_texts).reset_index(drop=True)
+del resampled_texts
+gc.collect()
+
 print(f"Reconstructed text corpus size: {len(X_text_resampled)}")
 
 
@@ -167,6 +192,10 @@ def preprocess(text):
  
 print("\nRunning NLP preprocessing pipeline...")
 tokenized = X_text_resampled.apply(preprocess)
+
+# Free the raw text series for memory
+del X_text_resampled
+gc.collect()
  
 # Remove any reviews that became empty after preprocessing
 mask = tokenized.apply(len) > 0
@@ -215,6 +244,10 @@ embedding_matrix = np.zeros((vocab_size + 2, W2V_DIM), dtype=np.float32)
 #   allowing lookup of a word's matrix by index
 for word, idx in word2idx.items():
     embedding_matrix[idx] = w2v_model.wv[word]
+
+# Free the word2vec model from memory
+del w2v_model
+gc.collect()
  
 print(f"Embedding matrix shape: {embedding_matrix.shape}")
 
@@ -226,6 +259,10 @@ def encode(tokens):
     return [word2idx.get(tok, UNK_IDX) for tok in tokens]
 
 encoded_sequences = tokenized.apply(encode)
+
+# Free tokenized from memory
+del tokenized
+gc.collect()
  
 # Get length of each seqeuence
 lengths = encoded_sequences.apply(len)
@@ -252,6 +289,10 @@ X_padded = np.array(
 )
 # Convert the target into the same matrix format
 y_array = np.array(y_resampled, dtype=np.int64)
+
+# Free encoded sequences and resampled labels from memory
+del encoded_sequences, y_resampled
+gc.collect()
  
 print(f"\nFinal padded input shape : {X_padded.shape}")
 print(f"Final label array shape  : {y_array.shape}")
@@ -259,11 +300,15 @@ print(f"Final label array shape  : {y_array.shape}")
 # ==================== Train / Test Split ====================
 # validation set and random_state omitted to replicates the paper's missing seed
  
-# 70/25 train/test split 
+# 75/25 train/test split 
 X_train, X_test, y_train, y_test = train_test_split(
     X_padded, y_array,
     test_size=0.25
 )
+
+# Free the full padded arrays from memory
+del X_padded, y_array
+gc.collect()
  
 print(f"\nTrain size : {len(X_train)}")
 print(f"Test size  : {len(X_test)}")
@@ -296,6 +341,10 @@ BATCH_SIZE = 64
  
 train_loader = DataLoader(ReviewDataset(X_train, y_train), batch_size=BATCH_SIZE, shuffle=True)
 test_loader  = DataLoader(ReviewDataset(X_test,  y_test),  batch_size=BATCH_SIZE, shuffle=False)
+
+# Free numpy splits from memory as dataloader holds copies
+del X_train, X_test, y_train, y_test
+gc.collect()
  
 print(f"\nTrain batches : {len(train_loader)}")
 print(f"Test batches  : {len(test_loader)}")
@@ -389,6 +438,10 @@ model = BiGRULSTM(
     num_classes=NUM_CLASSES,
     dropout=DROPOUT
 ).to(device)
+
+# Free the embedding matrix from memory
+del embedding_matrix
+gc.collect()
  
 print(model)
 print(f"\nTrainable parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
@@ -563,4 +616,3 @@ results_df.to_csv(results_path, mode='a', header=write_header, index=False)
 print(f"\nMetrics saved to {results_path}")
  
 print("\n========= Training Complete =========")
-
