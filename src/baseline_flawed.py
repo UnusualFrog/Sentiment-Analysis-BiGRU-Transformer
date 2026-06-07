@@ -177,7 +177,7 @@ print(f"Samples after preprocessing: {len(tokenized)}")
 print(f"\nSample preprocessed tokens (row 0):\n  {tokenized.iloc[0][:15]}")
 
 # ==================== Word2Vec Embeddings ====================
-# NOTE: In the flawed baseline, Word2Vec is (erroneously) trained on the full pre-split dataset
+# NOTE: In the flawed baseline, Word2Vec is likely (erroneously) trained on the full pre-split dataset
  
 print("\nTraining Word2Vec on full resampled corpus (before split)...")
 # 100d vector for every word
@@ -190,12 +190,12 @@ W2V_MINCOUNT = 2
 # Construct embedding vocabulary linking semantically related words
 #   for downstream consumption by BiGRU
 w2v_model = Word2Vec(
-    sentences   = tokenized.tolist(),
+    sentences = tokenized.tolist(),
     vector_size = W2V_DIM,
-    window      = W2V_WINDOW,
-    min_count   = W2V_MINCOUNT,
-    workers     = 4,
-    sg          = 0,
+    window = W2V_WINDOW,
+    min_count = W2V_MINCOUNT,
+    workers = 4,
+    sg = 0,
 )
 
 vocab_size = len(w2v_model.wv)
@@ -400,3 +400,167 @@ criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=LR)
  
 print("\n========= Model Initialised — Ready for Training =========")
+
+# ==================== TensorBoard Writer ====================
+
+# Each run is logged to a timestamped subdirectory so runs dont overwrite each other
+run_name = f"baseline_flawed_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+# Log each run to the results directory with filename logs_{current_run_name}
+writer = SummaryWriter(log_dir=os.path.join("results", "logs", run_name))
+ 
+# ==================== Training Loop ====================
+def train_epoch(model, loader, criterion, optimizer, device):
+    # Set model to training model and initalize tracking variables
+    model.train()
+    total_loss = 0
+    all_preds = []
+    all_labels = []
+    
+    # Loop through each seqeunce in the data loader
+    for sequences, labels in loader:
+        # Use GPU
+        sequences = sequences.to(device)
+        labels = labels.to(device)
+
+        # reset gradients
+        optimizer.zero_grad()
+        # compute forward pass to produce raw logits
+        logits = model(sequences)
+        # pass logits to softmax for classification and loss calculation
+        loss = criterion(logits, labels)
+        # compute backwards pass 
+        loss.backward()
+        # update weights using LR step magnitude
+        optimizer.step()
+
+        # track loss and predictions to calculate evaluation metrics
+        total_loss += loss.item()
+        preds = torch.argmax(logits, dim=1)
+        all_preds.extend(preds.cpu().numpy())
+        all_labels.extend(labels.cpu().numpy())
+    
+    # compute average loss and accuracy
+    avg_loss = total_loss / len(loader)
+    acc = accuracy_score(all_labels, all_preds)
+    return avg_loss, acc
+ 
+ 
+# ==================== Evaluation ====================
+ 
+def evaluate(model, loader, criterion, device):
+    # Set model to eval mode to disable dropout during inference
+    model.eval()
+    total_loss = 0
+    all_preds = []
+    all_labels = []
+    all_probs = []
+ 
+    # Disable gradient computation during evaluation (no updates)
+    with torch.no_grad():
+        # Loop through each sequence
+        for sequences, labels in loader:
+            # Use GPU
+            sequences = sequences.to(device)
+            labels = labels.to(device)
+
+            # forward pass
+            logits = model(sequences)
+            # softmax & loss
+            loss = criterion(logits, labels)
+            # track loss
+            total_loss += loss.item()
+ 
+            # Convert logits to probabilities for AUC computation
+            probs = torch.softmax(logits, dim=1)
+            preds = torch.argmax(probs, dim=1)
+
+            # track outputs for evaluation metric computations
+            all_probs.extend(probs.cpu().numpy())
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+ 
+    avg_loss = total_loss / len(loader)
+    all_probs = np.array(all_probs)
+    
+    # Compute evaluation metrics
+    metrics = {
+        "loss":      avg_loss,
+        "accuracy":  accuracy_score(all_labels, all_preds),
+        "precision": precision_score(all_labels, all_preds, average='macro', zero_division=0),
+        "recall":    recall_score(all_labels, all_preds, average='macro', zero_division=0),
+        "f1":        f1_score(all_labels, all_preds, average='macro', zero_division=0),
+        "auc":       roc_auc_score(all_labels, all_probs, multi_class='ovr', average='macro'),
+    }
+ 
+    return metrics, all_preds, all_labels, all_probs
+ 
+ 
+# ==================== Run Training ====================
+ 
+print(f"\nStarting training — {EPOCHS} total epochs")
+print(f"TensorBoard run: results/logs/{run_name}\n")
+ 
+#  Loop through epochs
+for epoch in range(1, EPOCHS + 1):
+    # train model
+    train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer, device)
+    # evaluate model
+    test_metrics, _, _, _ = evaluate(model, test_loader, criterion, device)
+    
+    # Write evaluation metrics to log file for tensorboard tracking
+    writer.add_scalar("Loss/train",      train_loss,               epoch)
+    writer.add_scalar("Loss/test",       test_metrics["loss"],     epoch)
+    writer.add_scalar("Accuracy/train",  train_acc,                epoch)
+    writer.add_scalar("Accuracy/test",   test_metrics["accuracy"], epoch)
+    writer.add_scalar("F1/test",         test_metrics["f1"],       epoch)
+    writer.add_scalar("AUC/test",        test_metrics["auc"],      epoch)
+    
+    # Display evaluation metrics on a per-epoch basis
+    print(f"Epoch {epoch:02d}/{EPOCHS} | ")
+    print(f"Train Loss: {train_loss:.4f}  Train Acc: {train_acc:.4f} | ")
+    print(f"Test Loss: {test_metrics['loss']:.4f}  Test Acc: {test_metrics['accuracy']:.4f}  ")
+    print(f"F1: {test_metrics['f1']:.4f}  AUC: {test_metrics['auc']:.4f}")
+ 
+writer.close()
+ 
+ 
+# ==================== Final Evaluation & Metric Reporting ====================
+
+# Evaluate model after training is complete
+final_metrics, final_preds, final_labels, final_probs = evaluate(
+    model, test_loader, criterion, device
+)
+ 
+class_names = ['Negative', 'Neutral', 'Positive']
+ 
+print("\n========= Final Test Set Results =========")
+print(f"Accuracy  : {final_metrics['accuracy']:.4f}")
+print(f"Precision : {final_metrics['precision']:.4f}  (macro)")
+print(f"Recall    : {final_metrics['recall']:.4f}  (macro)")
+print(f"F1        : {final_metrics['f1']:.4f}  (macro)")
+print(f"AUC       : {final_metrics['auc']:.4f}  (macro OvR)")
+ 
+print("\nPer-class report:")
+print(classification_report(final_labels, final_preds, target_names=class_names, digits=4))
+ 
+print("Confusion matrix (rows=actual, cols=predicted):")
+print(confusion_matrix(final_labels, final_preds))
+ 
+# Save metrics to CSV for paper reporting
+os.makedirs("results", exist_ok=True)
+results_row = {
+    "run":       run_name,
+    "accuracy":  final_metrics["accuracy"],
+    "precision": final_metrics["precision"],
+    "recall":    final_metrics["recall"],
+    "f1":        final_metrics["f1"],
+    "auc":       final_metrics["auc"],
+}
+results_df = pd.DataFrame([results_row])
+results_path = os.path.join("results", "baseline_flawed_results.csv")
+write_header = not os.path.exists(results_path)
+results_df.to_csv(results_path, mode='a', header=write_header, index=False)
+print(f"\nMetrics saved to {results_path}")
+ 
+print("\n========= Training Complete =========")
+
