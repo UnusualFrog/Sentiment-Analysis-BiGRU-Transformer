@@ -7,10 +7,13 @@ This script replicates the work in Atlas et al. (2025) including several metholo
   - No validation set (75/25 train/test only)
   - No fixed random seed (Omitted from the original paper)
  
-The goal of this script is to demonstrate how inflated results can be achieved with poor methodology
+The goal of this script is to demonstrate how data leakage can cause
+    inflated results to be achieved with poor methodology
 """
  
 import re
+import os
+from datetime import datetime
 import pandas as pd
 import numpy as np
 import torch
@@ -21,21 +24,28 @@ from nltk.stem import WordNetLemmatizer
 from nltk.tokenize import word_tokenize
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score,
+    f1_score, roc_auc_score, classification_report,
+    confusion_matrix
+)
 from imblearn.over_sampling import SMOTE
 from gensim.models import Word2Vec
 from torch.utils.data import Dataset, DataLoader
-
-# Download required NLTK resources (safe to re-run; skips if already present)
+from torch.utils.tensorboard import SummaryWriter
+ 
+# Download required NLTK resources
 nltk.download('punkt', quiet=True)
 nltk.download('punkt_tab', quiet=True)
 nltk.download('stopwords', quiet=True)
 nltk.download('wordnet', quiet=True)
 nltk.download('averaged_perceptron_tagger', quiet=True)
-
+ 
 print("========= CP4140 - Sentiment Analysis BiGRU Transformer =========")
 print("---------- Flawed Baseline ----------")
 print("GPU active: ", torch.cuda.is_available())
 print("\n")
+
 
 # ==================== Data Exploration & Cleaning ====================
 # Read raw dataset
@@ -80,7 +90,7 @@ X_dense = X_tfidf.toarray()
 print(f"TF-IDF matrix shape: {X_dense.shape}")
 
 
-# Apply SMOTE before split (generally incorrect, but accurate for replication)
+# Apply SMOTE before split (generally incorrect due to data leakage, but accurate for replication)
 print("\nApplying SMOTE to full dataset (before split)...")
 smote = SMOTE(sampling_strategy='not majority')
 X_resampled, y_resampled = smote.fit_resample(X_dense, y)
