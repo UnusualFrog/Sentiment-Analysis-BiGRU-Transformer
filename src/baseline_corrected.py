@@ -486,7 +486,7 @@ NUM_CLASSES = 3     # 3-class sentiment classification
 DROPOUT = 0.3       # 30% dropout rate (not specified)
 EPOCHS = 10         # 10 Training epochs
 LR = 1e-3           # common baseline learning rate (not specified)
-PATIENCE = 3        # early stopping patience (halt if val loss does not improve for 3 consecutive epochs)
+PATIENCE = 5        # early stopping patience
 
 # Verify GPU available before training
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

@@ -157,7 +157,7 @@ gc.collect()
 
 print(f"TF-IDF matrix shape (train): {X_dense_train.shape}")
 
-# Apply SMOTE to the training set only (correct methodology — no leakage into val/test)
+# Apply SMOTE to the training set only (correct methodology, no leakage into val/test)
 print("\nApplying SMOTE to training set only (after split)...")
 smote = SMOTE(sampling_strategy='not majority', random_state=GLOBAL_SEED)
 X_resampled, y_resampled = smote.fit_resample(X_dense_train, y_train)
@@ -187,7 +187,7 @@ print("\nReconstructing text sequences from resampled matrix...")
 n_original = len(X_train_text)
 y_train_values = y_train.values
 
-# Free the original y_train series — y_train_values is the working copy
+# Free the original y_train series, y_train_values is the working copy
 del y_train
 gc.collect()
 
@@ -267,7 +267,7 @@ mask_test = tokenized_test.apply(len) > 0
 tokenized_test = tokenized_test[mask_test].reset_index(drop=True)
 y_test = y_test[mask_test.values].reset_index(drop=True)
 
-print(f"Samples after preprocessing — Train: {len(tokenized_train)}, Val: {len(tokenized_val)}, Test: {len(tokenized_test)}")
+print(f"Samples after preprocessing - Train: {len(tokenized_train)}, Val: {len(tokenized_val)}, Test: {len(tokenized_test)}")
 print(f"\nSample preprocessed tokens (train row 0):\n  {tokenized_train.iloc[0][:15]}")
 
 
@@ -335,7 +335,7 @@ encoded_test  = tokenized_test.apply(encode)
 del tokenized_train, tokenized_val, tokenized_test
 gc.collect()
 
-# Get length of each sequence — computed from training set only to prevent leakage
+# Get length of each sequence - computed from training set only to prevent leakage
 lengths = encoded_train.apply(len)
 
 # Set max length as 95% of the longest sequence (derived from training set only)
@@ -376,8 +376,8 @@ y_test_array  = np.array(y_test,      dtype=np.int64)
 del encoded_train, encoded_val, encoded_test, y_resampled, y_val, y_test
 gc.collect()
 
-print(f"\nFinal padded input shapes — Train: {X_train_padded.shape}, Val: {X_val_padded.shape}, Test: {X_test_padded.shape}")
-print(f"Final label array shapes  — Train: {y_train_array.shape}, Val: {y_val_array.shape}, Test: {y_test_array.shape}")
+print(f"\nFinal padded input shapes - Train: {X_train_padded.shape}, Val: {X_val_padded.shape}, Test: {X_test_padded.shape}")
+print(f"Final label array shapes  - Train: {y_train_array.shape}, Val: {y_val_array.shape}, Test: {y_test_array.shape}")
 
 
 # ==================== PyTorch Dataset & DataLoader ====================
@@ -413,14 +413,8 @@ print(f"Test batches  : {len(test_loader)}")
 print("\n========= Preprocessing Complete =========")
 
 # ==================== Model Definition ====================
- 
-# Scaled dot-product self-attention over the full BiGRU output sequence.
-# For each position, attention weights are computed across all other positions,
-# allowing the model to focus on sentiment-relevant words regardless of where
-# they appear in the sequence — a principled improvement over using only the
-# LSTM final hidden state.
 
-# Self Attention over the BiGRU output seqeunce to compute the attention weights of words in each sequence
+# Self attention over the BiGRU output seqeunce to compute the weights of token dependencies between tokens in the sequence
 # IMPROVEMENT: this is an imporvement over the original work's LTSM head which used the final hidden state
 #               which can reduce the signal of early tokens in a sequence. Self attention solves this by
 #               calculating attention weights for each token with all other tokens pair-wise
@@ -439,10 +433,323 @@ class SelfAttention(nn.Module):
     def forward(self, x, key_padding_mask=None):
         # Query, key, and value are all the same BiGRU output sequence (self-attention)
         attn_out, attn_weights = self.attention(
-            query=x, # attention goal (co-relevance of keys)
-            key=x, # keys (word tokens) to be compared
-            value=x, # co-relevance values
+            query=x, # each word looks for other words it should focus on
+            key=x, # words used to measure how related they are
+            value=x, # information gathered from relatedness to other words
             key_padding_mask=key_padding_mask
         )
 
         return attn_out, attn_weights
+    
+# BiGRU + Transformer Head architecture
+# IMPROVEMENT: LTSM classifierreplaced with self-attention+mean pooling over the attended sequence
+#               This allows the model to better capture long-range dependencies as LTSM is biased
+#               towards later entries in a sequence due to use of the final hidden state. Instead
+#               the self attention of the Transformer head allows for token dependency to be 
+#               measured at any distance
+class BiGRUTransformer(nn.Module):
+    def __init__(self, embedding_matrix, hidden_dim, num_heads, num_classes, dropout):
+        # Inherit properties from the base PyTorch neural network class
+        super(BiGRUTransformer, self).__init__()
+ 
+        # Get vocab size and dimensions
+        vocab_size, embed_dim = embedding_matrix.shape
+ 
+        # Embedding layer initialised with pre-trained Word2Vec vocabulary weights
+        self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=PAD_IDX)
+ 
+        # Unfreeze the embedding layer to allow for fine-tuning during training
+        self.embedding.weight = nn.Parameter(torch.tensor(embedding_matrix, dtype=torch.float32), requires_grad=True)
+ 
+        # BiGRU layer processes the embedded sequence in both forward and backwards directions to capture broad word context
+        self.bigru = nn.GRU(
+            input_size=embed_dim,
+            hidden_size=hidden_dim,
+            batch_first=True,
+            bidirectional=True
+        )
+ 
+        # BiGRU output dimension is hidden_dim * 2 (forward + backward concatenated);
+        # this feeds directly into the self-attention layer in place of the LSTM
+        gru_out_dim = hidden_dim * 2
+ 
+        # Self-attention layer attends over all BiGRU hidden states simultaneously
+        self.attention = SelfAttention(input_dim=gru_out_dim, num_heads=num_heads)
+ 
+        # Apply dropout layer before classification for regularization
+        self.dropout = nn.Dropout(dropout)
+ 
+        # Dense output layer maps the mean-pooled attended states to class logits
+        # (softmax is auto-applied by CEL)
+        self.fc = nn.Linear(gru_out_dim, num_classes)
+ 
+    def forward(self, x):
+        # BiGRU batch_first means x = (batch, seq_len)
+ 
+        # Build a boolean padding mask: True where the token is PAD_IDX which are assigned zero weight
+        padding_mask = (x == PAD_IDX)
+ 
+        # dropout applied after embeddings layer to prevent overfitting on vocabulary
+        embedded = self.dropout(self.embedding(x))
+ 
+        # apply BiGRU to embedding output
+        # IMPROVEMENT: full sequence of hidden states is retained (not just the final state) so attention can operate over every position
+        gru_out, _ = self.bigru(embedded)
+ 
+        # apply dropout to BiGRU output
+        gru_out = self.dropout(gru_out)
+ 
+        # apply self-attention over the full BiGRU sequence
+        attn_out, _ = self.attention(gru_out, key_padding_mask=padding_mask)
+ 
+        # global mean pooling over the attended sequence collapses (batch, seq_len, dim)
+        # to (batch, dim); mean is taken only over non-padding positions to avoid
+        # diluting the representation with zero-padded slots
+
+        # convert padding tokens to value 0
+        attn_out = attn_out.masked_fill(padding_mask.unsqueeze(-1), 0.0)
+        # get count of non-padding tokens, inverse padding mask grabs any non-padding tokens 
+        # NOTE: clamped to min of 1 to prevent zero-division for seqeunces of all padding
+        non_pad_counts = (~padding_mask).sum(dim=1, keepdim=True).clamp(min=1).float()
+        # mean pooling of attention seqeunce (padding removed)
+        pooled = attn_out.sum(dim=1) / non_pad_counts
+ 
+        # apply dropout before classification
+        out = self.dropout(pooled)
+        # compute raw logits (softmax applied by CEL)
+        logits = self.fc(out)
+ 
+        return logits
+
+# ==================== Model Initialisation ====================
+ 
+# Hyperparameters -kept identical to baseline_corrected (excluding transformer params) for proper comparison
+HIDDEN_DIM = 128   # GRU units per direction (128 forwards, 128 backwards = 256 total)
+NUM_HEADS = 4     # attention heads; gru_out_dim (256) must be divisible by NUM_HEADS for clean sharing of sequences
+NUM_CLASSES = 3     # 3-class sentiment classification
+DROPOUT = 0.3   # 30% dropout rate
+EPOCHS = 10    # 10 Training epochs
+LR = 1e-3  # common baseline learning rate
+PATIENCE = 5     # early stopping patience
+ 
+# Verify GPU available before training
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f"Training on: {device}")
+ 
+# Initialize model with hyperparameters on the GPU
+model = BiGRUTransformer(
+    embedding_matrix=embedding_matrix,
+    hidden_dim=HIDDEN_DIM,
+    num_heads=NUM_HEADS,
+    num_classes=NUM_CLASSES,
+    dropout=DROPOUT
+).to(device)
+ 
+# Free the embedding matrix from memory
+del embedding_matrix
+gc.collect()
+ 
+print(model)
+print(f"\nTrainable parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
+ 
+# Cross Entropy used for Loss (Softmax applied internally)
+criterion = nn.CrossEntropyLoss()
+ 
+# Adam optimiser (assumed based on common practicces and reference in original work's literature review)
+optimizer = torch.optim.Adam(model.parameters(), lr=LR)
+ 
+print("\n========= Model Initialised - Ready for Training =========")
+
+# ==================== TensorBoard Writer ====================
+ 
+# Each run is logged to a timestamped subdirectory so runs dont overwrite each other
+run_name = f"novel_model_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+# Log each run to the results directory with filename logs_{current_run_name}
+writer = SummaryWriter(log_dir=os.path.join("results", "logs", run_name))
+ 
+# ==================== Training Loop ====================
+
+def train_epoch(model, loader, criterion, optimizer, device):
+    # Set model to training model and initalize tracking variables
+    model.train()
+    total_loss = 0
+    all_preds = []
+    all_labels = []
+ 
+    # Loop through each seqeunce in the data loader
+    for sequences, labels in loader:
+        # Use GPU
+        sequences = sequences.to(device)
+        labels = labels.to(device)
+ 
+        # reset gradients
+        optimizer.zero_grad()
+        # compute forward pass to produce raw logits
+        logits = model(sequences)
+        # pass logits to CEL for softmax classification and loss calculation
+        loss = criterion(logits, labels)
+        # compute backwards pass
+        loss.backward()
+        # update weights using LR step magnitude
+        optimizer.step()
+ 
+        # track loss and predictions to calculate evaluation metrics
+        total_loss += loss.item()
+        preds = torch.argmax(logits, dim=1)
+        all_preds.extend(preds.cpu().numpy())
+        all_labels.extend(labels.cpu().numpy())
+ 
+    # compute average loss and accuracy
+    avg_loss = total_loss / len(loader)
+    acc = accuracy_score(all_labels, all_preds)
+    return avg_loss, acc
+
+# ==================== Evaluation ====================
+ 
+def evaluate(model, loader, criterion, device):
+    # Set model to eval mode to disable dropout during inference
+    model.eval()
+    total_loss = 0
+    all_preds = []
+    all_labels = []
+    all_probs = []
+ 
+    # Disable gradient computation during evaluation (no updates)
+    with torch.no_grad():
+        # Loop through each sequence
+        for sequences, labels in loader:
+            # Use GPU
+            sequences = sequences.to(device)
+            labels = labels.to(device)
+ 
+            # forward pass
+            logits = model(sequences)
+            # softmax & loss
+            loss = criterion(logits, labels)
+            # track loss
+            total_loss += loss.item()
+ 
+            # Convert logits to probabilities for AUC computation
+            probs = torch.softmax(logits, dim=1)
+            preds = torch.argmax(probs, dim=1)
+ 
+            # track outputs for evaluation metric computations
+            all_probs.extend(probs.cpu().numpy())
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+ 
+    avg_loss = total_loss / len(loader)
+    all_probs = np.array(all_probs)
+ 
+    # Compute evaluation metrics
+    metrics = {
+        "loss":      avg_loss,
+        "accuracy":  accuracy_score(all_labels, all_preds),
+        "precision": precision_score(all_labels, all_preds, average='macro', zero_division=0),
+        "recall":    recall_score(all_labels, all_preds, average='macro', zero_division=0),
+        "f1":        f1_score(all_labels, all_preds, average='macro', zero_division=0),
+        "auc":       roc_auc_score(all_labels, all_probs, multi_class='ovr', average='macro'),
+    }
+ 
+    return metrics, all_preds, all_labels, all_probs
+
+# ==================== Run Training ====================
+ 
+print(f"\nStarting training - {EPOCHS} total epochs (early stopping patience: {PATIENCE})")
+print(f"TensorBoard run: results/logs/{run_name}\n")
+ 
+# Early stopping state
+best_val_loss = float('inf')
+epochs_without_improvement = 0
+best_model_path = os.path.join("models", f"{run_name}_best.pt")
+os.makedirs("models", exist_ok=True)
+ 
+#  Loop through epochs
+for epoch in range(1, EPOCHS + 1):
+    # train model
+    train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer, device)
+    # evaluate on validation set to monitor for overfitting
+    val_metrics, _, _, _ = evaluate(model, val_loader, criterion, device)
+ 
+    # Write evaluation metrics to log file for tensorboard tracking
+    writer.add_scalar("Loss/train",     train_loss,              epoch)
+    writer.add_scalar("Loss/val",       val_metrics["loss"],     epoch)
+    writer.add_scalar("Accuracy/train", train_acc,               epoch)
+    writer.add_scalar("Accuracy/val",   val_metrics["accuracy"], epoch)
+    writer.add_scalar("F1/val",         val_metrics["f1"],       epoch)
+    writer.add_scalar("AUC/val",        val_metrics["auc"],      epoch)
+ 
+    # Display evaluation metrics on a per-epoch basis
+    print(f"Epoch {epoch:02d}/{EPOCHS} | ")
+    print(f"Train Loss: {train_loss:.4f}  Train Acc: {train_acc:.4f} | ")
+    print(f"Val Loss: {val_metrics['loss']:.4f}  Val Acc: {val_metrics['accuracy']:.4f}  ")
+    print(f"F1: {val_metrics['f1']:.4f}  AUC: {val_metrics['auc']:.4f}")
+ 
+    # Early stopping: save checkpoint if val loss improved, otherwise increment patience counter
+    if val_metrics["loss"] < best_val_loss:
+        best_val_loss = val_metrics["loss"]
+        epochs_without_improvement = 0
+        torch.save(model.state_dict(), best_model_path)
+        print(f"  ✓ Val loss improved - checkpoint saved to {best_model_path}")
+    else:
+        epochs_without_improvement += 1
+        print(f"  No improvement ({epochs_without_improvement}/{PATIENCE})")
+        if epochs_without_improvement >= PATIENCE:
+            print(f"\nEarly stopping triggered at epoch {epoch}.")
+            break
+ 
+writer.close()
+ 
+# Restore best checkpoint before final evaluation on held-out test set
+print(f"\nRestoring best model weights from {best_model_path}...")
+model.load_state_dict(torch.load(best_model_path, map_location=device))
+ 
+ 
+# ==================== Final Evaluation & Metric Reporting ====================
+ 
+# Evaluate model on the held-out test set after training is complete
+final_metrics, final_preds, final_labels, final_probs = evaluate(
+    model, test_loader, criterion, device
+)
+ 
+class_names = ['Negative', 'Neutral', 'Positive']
+ 
+print("\n========= Final Test Set Results =========")
+print(f"Accuracy  : {final_metrics['accuracy']:.4f}")
+print(f"Precision : {final_metrics['precision']:.4f}  (macro)")
+print(f"Recall    : {final_metrics['recall']:.4f}  (macro)")
+print(f"F1        : {final_metrics['f1']:.4f}  (macro)")
+print(f"AUC       : {final_metrics['auc']:.4f}  (macro OvR)")
+ 
+print("\nPer-class report:")
+print(classification_report(final_labels, final_preds, target_names=class_names, digits=4))
+ 
+print("Confusion matrix (rows=actual, cols=predicted):")
+print(confusion_matrix(final_labels, final_preds))
+ 
+# Log hyperparameters alongside final test metrics for the reproducibility package
+# and ablation study; all settings that differ from baseline_corrected.py are
+# captured here so each run is self-documenting
+os.makedirs("results", exist_ok=True)
+results_row = {
+    "run":          run_name,
+    "hidden_dim":   HIDDEN_DIM,
+    "num_heads":    NUM_HEADS,
+    "dropout":      DROPOUT,
+    "epochs":       EPOCHS,
+    "lr":           LR,
+    "batch_size":   BATCH_SIZE,
+    "patience":     PATIENCE,
+    "accuracy":     final_metrics["accuracy"],
+    "precision":    final_metrics["precision"],
+    "recall":       final_metrics["recall"],
+    "f1":           final_metrics["f1"],
+    "auc":          final_metrics["auc"],
+}
+results_df = pd.DataFrame([results_row])
+results_path = os.path.join("results", "novel_model_results.csv")
+write_header = not os.path.exists(results_path)
+results_df.to_csv(results_path, mode='a', header=write_header, index=False)
+print(f"\nMetrics saved to {results_path}")
+ 
+print("\n========= Training Complete =========")
