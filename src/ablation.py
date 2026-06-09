@@ -437,4 +437,71 @@ gc.collect()
 print(f"\nTrain batches : {len(train_loader)}")
 print(f"Val batches   : {len(val_loader)}")
 print(f"Test batches  : {len(test_loader)}")
-print("\n========= Preprocessing Complete — Beginning Ablation Variants =========")
+print("\n========= Preprocessing Complete - Beginning Ablation Variants =========")
+
+# ==================== Model Definitions ====================
+ 
+# ------------------------------------------------------------------
+# Variant 1: BiGRU only - measure the contribution of BiGRU alone
+# ------------------------------------------------------------------
+class BiGRUOnly(nn.Module):
+    def __init__(self, embedding_matrix, hidden_dim, num_classes, dropout):
+        # Inherit properties from the base PyTorch neural network class
+        super(BiGRUOnly, self).__init__()
+ 
+        # Get vocab size and dimensions
+        vocab_size, embed_dim = embedding_matrix.shape
+ 
+        # Embedding layer initialised with pre-trained Word2Vec vocabulary weights
+        self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=PAD_IDX)
+ 
+        # Unfreeze the embedding layer to allow for fine-tuning during training
+        self.embedding.weight = nn.Parameter(torch.tensor(embedding_matrix, dtype=torch.float32), requires_grad=True)
+ 
+        # BiGRU layer processes the embedded sequence in both forward and backwards directions to capture broad word context
+        self.bigru = nn.GRU(
+            input_size=embed_dim,
+            hidden_size=hidden_dim,
+            batch_first=True,
+            bidirectional=True
+        )
+ 
+        # Apply dropout layer before classification for regularization
+        self.dropout = nn.Dropout(dropout)
+ 
+        # Dense output layer maps the mean-pooled BiGRU states directly to class logits
+        # (softmax is auto-applied by CEL); input size multiplied by 2 for bidirectionality
+        self.fc = nn.Linear(hidden_dim * 2, num_classes)
+ 
+    def forward(self, x):
+        # BiGRU batch_first means x = (batch, seq_len)
+ 
+        # Build boolean padding mask for masked mean pooling
+        padding_mask = (x == PAD_IDX)
+ 
+        # dropout applied after embeddings layer to prevent overfitting on vocabulary
+        embedded = self.dropout(self.embedding(x))
+ 
+        # apply BiGRU to embedding output; full sequence retained for pooling
+        gru_out, _ = self.bigru(embedded)
+ 
+        # apply dropout to BiGRU output
+        gru_out = self.dropout(gru_out)
+ 
+        # set padding positions as 0 (padding token) before averaging as they are not relevant signal
+        gru_out = gru_out.masked_fill(padding_mask.unsqueeze(-1), 0.0)
+        # get count of non-padding tokens (clamp min of 1 prevents zero-division)
+        non_pad_counts = (~padding_mask).sum(dim=1, keepdim=True).clamp(min=1).float()
+        # Apply mean pooling
+        pooled = gru_out.sum(dim=1) / non_pad_counts
+ 
+        # apply dropout before classification
+        out = self.dropout(pooled)
+        # compute raw logits (softmax applied by CEL)
+        logits = self.fc(out)
+ 
+        return logits
+ 
+ 
+
+
