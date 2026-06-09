@@ -109,14 +109,70 @@ def load_preds(run_prefix):
     data  = np.load(path)
     return data["labels"], data["preds"], data["probs"]
 
+# ==================== Figure 1: Loss Curves ====================
+ 
+#  Plot loss curves for train/val/test sets, per epoch, with a seperate figure for each model
+def plot_loss_curves():
+    print("\n Plotting loss curves...")
+ 
+    # flawed baseline uses 'Loss/test'; corrected and novel use 'Loss/val'
+    val_tag_map = {
+        "baseline_flawed":    "Loss/test",
+        "baseline_corrected": "Loss/val",
+        "novel_model":        "Loss/val",
+    }
+    val_label_map = {
+        "baseline_flawed":    "Test Loss",
+        "baseline_corrected": "Val Loss",
+        "novel_model":        "Val Loss",
+    }
+    
+    # loop through each of the three models
+    for run_prefix, style in MODEL_STYLES.items():
+
+        #  load tensorboard scalar values for both splits
+        train_steps, train_vals = load_tb_scalars(run_prefix, "Loss/train")
+        # Use test for flawed baseline, use val for others
+        val_steps, val_vals = load_tb_scalars(run_prefix, val_tag_map[run_prefix])
+
+        # Handle missing data
+        if train_steps is None:
+            print(f"  Skipping {run_prefix} - no TensorBoard data found.")
+            continue
+        
+        # Generate blank figure
+        fig, ax = plt.subplots(figsize=(6, 4))
+
+        # Plot training loss
+        ax.plot(train_steps, train_vals, color=style["color"],
+                linestyle="--", linewidth=1.8, label="Train Loss")
+
+        # plot validation loss
+        if val_vals is not None:
+            ax.plot(val_steps, val_vals, color=style["color"],
+                    linestyle="-", linewidth=1.8, label=val_label_map[run_prefix])
+
+        # Figure styling
+        ax.set_title(f"Loss Curve - {style['label']}", fontsize=13)
+        ax.set_xlabel("Epoch", fontsize=11)
+        ax.set_ylabel("Cross-Entropy Loss", fontsize=11)
+        ax.xaxis.set_major_locator(mticker.MaxNLocator(integer=True))
+        ax.legend(fontsize=10)
+        ax.grid(True, alpha=0.3)
+        fig.tight_layout()
+ 
+        save_fig(fig, f"loss_curve_{run_prefix}")
+
+
 # ==================== Main ====================
  
 if __name__ == "__main__":
     print("========= CP4140 - Sentiment Analysis BiGRU Transformer =========")
     print("---------- Model Evaluation: Figure Generation ----------\n")
 
-    prefix = "baseline_corrected"
-    print(load_tb_scalars(prefix, "Accuracy/train"))
-    print(load_preds(prefix))
+    # prefix = "baseline_corrected"
+    # print(load_tb_scalars(prefix, "Accuracy/train"))
+    # print(load_preds(prefix))
+    plot_loss_curves()
 
-    print("\n========= evaluate.py Complete — all figures saved to figures/ =========")
+    print("\n========= evaluate.py Complete - all figures saved to figures/ =========")

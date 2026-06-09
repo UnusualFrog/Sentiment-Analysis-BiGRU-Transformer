@@ -14,4 +14,5 @@ results/
 # Trained models
 models/
 
-docs/dl_paper.md
+# Generated Figures
+figures/
