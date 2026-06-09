@@ -163,6 +163,74 @@ def plot_loss_curves():
  
         save_fig(fig, f"loss_curve_{run_prefix}")
 
+# ==================== Figure 2: ROC Curves ====================
+ 
+# plot one vs. rest ROC curve for all models
+def plot_roc_curves():
+    print("\  Plotting ROC curves...")
+    
+    # generate a blank figure with subplots for each class
+    fig, axes = plt.subplots(1, NUM_CLASSES, figsize=(5 * NUM_CLASSES, 4.5), sharey=True)
+    
+    # track if figure has been succesfully plotted
+    any_plotted = False
+    
+    # Loop through each model
+    for run_prefix, style in MODEL_STYLES.items():
+        # Load prediction data from npz file
+        labels, preds, probs = load_preds(run_prefix)
+
+        # Handle missing data
+        if labels is None:
+            continue
+        
+        # only true if labels loaded correctly
+        any_plotted = True
+
+        # Binarise labels for one-vs-rest AUC computation
+        labels_bin = label_binarize(labels, classes=list(range(NUM_CLASSES)))
+
+        # subplot for each class
+        for cls_idx, cls_name in enumerate(CLASS_NAMES):\
+            # produce false positve and true postive rates using roc_curve generation
+            fpr, tpr, _ = roc_curve(labels_bin[:, cls_idx], probs[:, cls_idx])
+            # calculate area under the ROC curve
+            roc_auc     = auc(fpr, tpr)
+
+            # plot roc curve for current class
+            axes[cls_idx].plot(
+                fpr, tpr,
+                color=style["color"],
+                linestyle=style["linestyle"],
+                linewidth=1.8,
+                label=f"{style['label']} (AUC={roc_auc:.3f})"
+            )
+    
+    # Skip saving figure if nothing plotted
+    if not any_plotted:
+        print("  No prediction files found — skipping ROC figure.")
+        plt.close(fig)
+        return
+    
+    # Loop through and format subplots
+    for cls_idx, cls_name in enumerate(CLASS_NAMES):
+        ax = axes[cls_idx]
+        # Add diagonal chance line
+        ax.plot([0, 1], [0, 1], "k--", linewidth=1, alpha=0.5)
+        ax.set_title(f"ROC — {cls_name} (OvR)", fontsize=12)
+        ax.set_xlabel("False Positive Rate", fontsize=10)
+        if cls_idx == 0:
+            ax.set_ylabel("True Positive Rate", fontsize=10)
+        ax.legend(fontsize=8, loc="lower right")
+        ax.grid(True, alpha=0.3)
+        ax.set_xlim([0, 1])
+        ax.set_ylim([0, 1.02])
+ 
+    fig.suptitle("ROC Curves — All Models (One-vs-Rest)", fontsize=13, y=1.02)
+    fig.tight_layout()
+    save_fig(fig, "roc_curves_all_models")
+
+
 
 # ==================== Main ====================
  
@@ -174,5 +242,6 @@ if __name__ == "__main__":
     # print(load_tb_scalars(prefix, "Accuracy/train"))
     # print(load_preds(prefix))
     plot_loss_curves()
+    plot_roc_curves()
 
     print("\n========= evaluate.py Complete - all figures saved to figures/ =========")
