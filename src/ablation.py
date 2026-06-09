@@ -294,3 +294,111 @@ y_test = y_test[mask_test.values].reset_index(drop=True)
  
 print(f"Samples after preprocessing - Train: {len(tokenized_train)}, Val: {len(tokenized_val)}, Test: {len(tokenized_test)}")
 print(f"\nSample preprocessed tokens (train row 0):\n  {tokenized_train.iloc[0][:15]}")
+
+# ==================== Word2Vec Embeddings ====================
+# Word2Vec is trained on the training corpus only to prevent leakage into val/test
+ 
+print("\nTraining Word2Vec on training corpus only (after split)...")
+# 100d vector for every word
+W2V_DIM = 100
+# 5 words of surrounding context per word
+W2V_WINDOW = 5
+# Words appearing less than twice are considered noise and are filtered out
+W2V_MINCOUNT = 2
+ 
+# Construct embedding vocabulary linking semantically related words
+#   for downstream consumption by BiGRU
+w2v_model = Word2Vec(
+    sentences = tokenized_train.tolist(),
+    vector_size = W2V_DIM,
+    window = W2V_WINDOW,
+    min_count = W2V_MINCOUNT,
+    workers = 4,
+    sg = 0,
+    seed = GLOBAL_SEED,
+)
+ 
+vocab_size = len(w2v_model.wv)
+print(f"Word2Vec vocabulary size: {vocab_size}")
+ 
+ 
+# ==================== Vocabulary Index & Embedding Matrix ====================
+# Reserve index 0 and 1 for padding and UNK tokens respectively
+PAD_IDX = 0
+UNK_IDX = 1
+ 
+# Map each word in vocab to unique integer for downstream BiGRU consumption
+word2idx = {word: idx + 2 for idx, word in enumerate(w2v_model.wv.index_to_key)}
+ 
+# Generate a lookup matrix of size equal to the vocabulary + 2 for reserved tokens
+embedding_matrix = np.zeros((vocab_size + 2, W2V_DIM), dtype=np.float32)
+# Map each word's matrix to a row in the embedding matrix
+#   allowing lookup of a word's matrix by index
+for word, idx in word2idx.items():
+    embedding_matrix[idx] = w2v_model.wv[word]
+ 
+# Free the word2vec model from memory
+del w2v_model
+gc.collect()
+ 
+print(f"Embedding matrix shape: {embedding_matrix.shape}")
+ 
+ 
+# ==================== Encode & Pad Sequences ====================
+ 
+# Generate a list of indexes corresponding to each word in the vocabulary
+# words not found in the vocabulary are replaced with the index 1, respresenting the UNK token
+def encode(tokens):
+    return [word2idx.get(tok, UNK_IDX) for tok in tokens]
+ 
+encoded_train = tokenized_train.apply(encode)
+encoded_val   = tokenized_val.apply(encode)
+encoded_test  = tokenized_test.apply(encode)
+ 
+# Free tokenized series from memory
+del tokenized_train, tokenized_val, tokenized_test
+gc.collect()
+ 
+# Get length of each sequence (computed from training set only to prevent leakage)
+lengths = encoded_train.apply(len)
+ 
+# Set max length as 95% of the longest sequence (derived from training set only)
+MAX_LEN = int(np.percentile(lengths, 95))
+ 
+# Show range of sequence lengths
+print(f"\nSequence length - min: {lengths.min()}, "
+      f"mean: {lengths.mean():.0f}, 95th pct: {MAX_LEN}, max: {lengths.max()}")
+ 
+# Pads or truncates a sequence until it reaches max length
+def pad_or_truncate(seq, max_len):
+    # truncate long sequences
+    seq = seq[:max_len]
+ 
+    # pad short sequences to max length
+    return seq + [PAD_IDX] * (max_len - len(seq))
+ 
+# Apply pad_or_truncate to all sequences
+X_train_padded = np.array(
+    [pad_or_truncate(seq, MAX_LEN) for seq in encoded_train],
+    dtype=np.int64
+)
+X_val_padded = np.array(
+    [pad_or_truncate(seq, MAX_LEN) for seq in encoded_val],
+    dtype=np.int64
+)
+X_test_padded = np.array(
+    [pad_or_truncate(seq, MAX_LEN) for seq in encoded_test],
+    dtype=np.int64
+)
+ 
+# Convert the targets into array format
+y_train_array = np.array(y_resampled, dtype=np.int64)
+y_val_array = np.array(y_val, dtype=np.int64)
+y_test_array = np.array(y_test, dtype=np.int64)
+ 
+# Free encoded sequences and label series from memory
+del encoded_train, encoded_val, encoded_test, y_resampled, y_val, y_test
+gc.collect()
+ 
+print(f"\nFinal padded input shapes - Train: {X_train_padded.shape}, Val: {X_val_padded.shape}, Test: {X_test_padded.shape}")
+print(f"Final label array shapes  - Train: {y_train_array.shape}, Val: {y_val_array.shape}, Test: {y_test_array.shape}")
