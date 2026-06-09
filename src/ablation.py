@@ -76,3 +76,88 @@ print("---------- ablation.py: Ablation Study ----------")
 print("GPU active: ", torch.cuda.is_available())
 print("\n")
 
+# ==================== Data Exploration & Cleaning ====================
+# Read raw dataset
+df = pd.read_csv('data/Reviews.csv')
+ 
+# Display dataset info and sample rows
+df.info()
+print(f"\n{df.head(3)}")
+ 
+# Drop duplicate reviews (different users, same text content)
+print(f"\nRows before de-duplication: {len(df)}")
+df = df.drop_duplicates(subset='Text')
+print(f"Rows after de-duplication: {len(df)}")
+ 
+# Drop irrelevant features
+df = df.drop(["Id", "ProductId", "UserId", "ProfileName", "HelpfulnessNumerator", "HelpfulnessDenominator", "Time", "Summary"], axis=1)
+ 
+# Convert numeric rating ranges to three-class polarity
+def map_sentiment(score):
+    if score <= 2:
+        return 0   # Negative
+    elif score == 3:
+        return 1   # Neutral
+    else:
+        return 2   # Positive
+
+# Add numeric sentiment column
+df['Sentiment'] = df['Score'].apply(map_sentiment)
+# Drop text sentiment column
+df = df.drop('Score', axis=1)
+ 
+# Display pre-SMOTE class distribution
+print("\nClass distribution before SMOTE:")
+print(df['Sentiment'].value_counts())
+ 
+# Split training features from target feature
+X_text = df['Text']
+y = df['Sentiment']
+ 
+# Delete the dataframe and reclaim memory
+del df
+gc.collect()
+ 
+ 
+# ==================== Train / Val / Test Split ====================
+# 70/15/15 split performed BEFORE any augmentation or embedding training
+# Fixed seed used for reproducibility
+ 
+# First split off the 30% that will become val + test
+X_train_text, X_temp_text, y_train, y_temp = train_test_split(
+    X_text, y,
+    test_size=0.30,
+    random_state=GLOBAL_SEED,
+    stratify=y
+)
+ 
+# Split the remaining 30% evenly into val (15%) and test (15%)
+X_val_text, X_test_text, y_val, y_test = train_test_split(
+    X_temp_text, y_temp,
+    test_size=0.50,
+    random_state=GLOBAL_SEED,
+    stratify=y_temp
+)
+ 
+# Free the full text series and temporary split from memory
+del X_text, y, X_temp_text, y_temp
+gc.collect()
+ 
+# Reset indices on all splits for downstream consistency
+X_train_text = X_train_text.reset_index(drop=True)
+X_val_text   = X_val_text.reset_index(drop=True)
+X_test_text  = X_test_text.reset_index(drop=True)
+y_train = y_train.reset_index(drop=True)
+y_val   = y_val.reset_index(drop=True)
+y_test  = y_test.reset_index(drop=True)
+ 
+#  Display split information
+print(f"\nTrain size : {len(X_train_text)}")
+print(f"Val size   : {len(X_val_text)}")
+print(f"Test size  : {len(X_test_text)}")
+ 
+# Loop through the train, val, and test sets and display the class distribution for each separately
+for split_name, split_y in [("Train", y_train), ("Val", y_val), ("Test", y_test)]:
+    print(f"\n{split_name} class distribution:")
+    for cls, label in zip([0, 1, 2], ['Negative', 'Neutral', 'Positive']):
+        print(f"  {label}: {(split_y == cls).sum()}")
