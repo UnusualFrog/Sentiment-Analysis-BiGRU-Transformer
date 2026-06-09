@@ -231,6 +231,171 @@ def plot_roc_curves():
     save_fig(fig, "roc_curves_all_models")
 
 
+# ==================== Figure 3: Confusion Matrices ====================
+ 
+ # plot a confusion matrix for each model
+def plot_confusion_matrices():
+    print("\n Plotting confusion matrices...")
+    
+    # For each model
+    for run_prefix, style in MODEL_STYLES.items():
+        # Load prediction data from npz
+        labels, preds, probs = load_preds(run_prefix)
+
+        # Handle missing data
+        if labels is None:
+            continue
+        
+        # Generate a confusion matrix with normalization for better minority class visualization
+        cm = confusion_matrix(labels, preds, normalize="true")
+
+        # Generate a blank figure
+        fig, ax = plt.subplots(figsize=(5, 4.5))
+        # Generate a confusion matrix figure using the confusion matrix
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=CLASS_NAMES)
+        # Plot the confusion matrix to the figure
+        disp.plot(ax=ax, colorbar=True, cmap="Blues", values_format=".2f")
+
+        ax.set_title(f"Confusion Matrix — {style['label']}\n(row-normalised)", fontsize=12)
+        fig.tight_layout()
+        save_fig(fig, f"confusion_matrix_{run_prefix}")
+
+# ==================== Figure 4: Overall Accuracy Bar Chart ====================
+ 
+#  Plot overall accuracy for test set across all three models
+def plot_accuracy_bar():
+    print("\n Plotting accuracy bar chart...")
+    
+    # map model names to their csv outputs
+    csv_map = {
+        "baseline_flawed":    os.path.join(RESULTS_DIR, "baseline_flawed_results.csv"),
+        "baseline_corrected": os.path.join(RESULTS_DIR, "baseline_corrected_results.csv"),
+        "novel_model":        os.path.join(RESULTS_DIR, "novel_model_results.csv"),
+    }
+    
+    # Initalize tracking variables
+    labels_list   = []
+    accuracy_list = []
+    color_list    = []
+    
+    # Loop through all three models
+    for run_prefix, style in MODEL_STYLES.items():
+        # Get csv path
+        csv_path = csv_map[run_prefix]
+
+        # Handle missing file
+        if not os.path.exists(csv_path):
+            print(f"  ERROR CSV not found: {csv_path} - skipping.")
+            continue
+
+        # Read file data
+        df  = pd.read_csv(csv_path)
+        # Capture accuracy, labels and color for styling
+        acc = df["accuracy"].iloc[-1]   # most recent run
+        labels_list.append(style["label"])
+        accuracy_list.append(acc)
+        color_list.append(style["color"])
+    
+    # Handle missing data
+    if not labels_list:
+        print("  No CSV results found - skipping accuracy bar chart.")
+        return
+    
+    # Generate blank figure
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    # Generate bar chart based on accuracy values
+    bars = ax.bar(labels_list, accuracy_list, color=color_list, width=0.45, edgecolor="black", linewidth=0.7)
+ 
+    # Annotate each bar with the exact accuracy value
+    for bar, acc in zip(bars, accuracy_list):
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.003,
+            f"{acc:.4f}",
+            ha="center", va="bottom", fontsize=10, fontweight="bold"
+        )
+    
+    # Formatting & Styling
+    ax.set_ylim(0, min(1.0, max(accuracy_list) + 0.08))
+    ax.set_ylabel("Test Accuracy", fontsize=11)
+    ax.set_title("Overall Test Accuracy - All Models", fontsize=13)
+    ax.yaxis.set_major_formatter(mticker.PercentFormatter(xmax=1.0, decimals=1))
+    ax.grid(True, axis="y", alpha=0.3)
+    fig.tight_layout()
+    save_fig(fig, "accuracy_bar_all_models")
+
+# ==================== Print Three-Model Comparison Table ====================
+ 
+# Generate a comparison table for easy comparison of all three models and their evaluation metrics
+def print_comparison_table():
+    # Map model names to output data
+    csv_map = {
+        "baseline_flawed":    (os.path.join(RESULTS_DIR, "baseline_flawed_results.csv"),
+                               "Flawed (SMOTE leak, no val set)"),
+        "baseline_corrected": (os.path.join(RESULTS_DIR, "baseline_corrected_results.csv"),
+                               "Corrected"),
+        "novel_model":        (os.path.join(RESULTS_DIR, "novel_model_results.csv"),
+                               "Corrected"),
+    }
+    
+    # map model names to their detailed architecture
+    model_labels = {
+        "baseline_flawed":    "BiGRU + LSTM",
+        "baseline_corrected": "BiGRU + LSTM",
+        "novel_model":        "BiGRU + Transformer",
+    }
+ 
+    print("\n" + "=" * 75)
+    print("THREE-MODEL COMPARISON TABLE")
+    print("=" * 75)
+    print(f"{'Model':<30} {'Setup':<34} {'Acc':>6} {'F1':>6} {'AUC':>6}")
+    print("-" * 75)
+    
+    # Loop through each model
+    for run_prefix, (csv_path, setup_label) in csv_map.items():
+        # Handle missing data
+        if not os.path.exists(csv_path):
+            print(f"  {model_labels[run_prefix]:<30} CSV not found - run training script first.")
+            continue
+        # Read csv data
+        df  = pd.read_csv(csv_path)
+        # Get most recent row
+        row = df.iloc[-1]
+        # print formatted table
+        print(
+            f"{model_labels[run_prefix]:<30} "
+            f"{setup_label:<34} "
+            f"{row['accuracy']:.4f} "
+            f"{row['f1']:.4f} "
+            f"{row['auc']:.4f}"
+        )
+ 
+    print("=" * 75)
+
+# ==================== Print Per-Class Metrics ====================
+ 
+ # Print evaluation metrics for each class and each model
+def print_per_class_metrics():
+    print("\n" + "=" * 75)
+    print("PER-CLASS METRICS")
+    print("=" * 75)
+    
+    # Loop through each model
+    for run_prefix, style in MODEL_STYLES.items():
+        # Load npz data
+        labels, preds, probs = load_preds(run_prefix)
+
+        # Handle missing
+        if labels is None:
+            continue
+
+        # Print formatted classification report for each model
+        print(f"\n{style['label']}")
+        print("-" * 50)
+        print(classification_report(labels, preds, target_names=CLASS_NAMES, digits=4))
+
+
+
 
 # ==================== Main ====================
  
@@ -243,5 +408,7 @@ if __name__ == "__main__":
     # print(load_preds(prefix))
     plot_loss_curves()
     plot_roc_curves()
+    plot_confusion_matrices()
+    plot_accuracy_bar()
 
     print("\n========= evaluate.py Complete - all figures saved to figures/ =========")
