@@ -2,11 +2,11 @@
 baseline_corrected.py
 ==================
 This script replicates the methodology in Atlas et al. (2025) while correcting several metholodgical errors:
-  - SMOTE and word2vec applied After train/test split
-  - Validation set used (70/15/15 train/val/test)
   - Random seed applied
-  - De-duplication of data
-  - Early stopping applied to training
+  - De-uplication of data
+  - Validation set used (70/15/15 train/val/test)
+  - SMOTE and word embeddings applied After train/val/test split
+
 The goal of this script is to demonstrate the actual results of the replicated methodlogy when correctly applied
 """
 
@@ -63,7 +63,7 @@ df = pd.read_csv('data/Reviews.csv')
 df.info()
 print(f"\n{df.head(3)}")
 
-# FIX: Drop duplicate reviews (different users, same text content)
+# Drop duplicate reviews (different users, same text content)
 print(f"\nRows before de-duplication: {len(df)}")
 df = df.drop_duplicates(subset='Text')
 print(f"Rows after de-duplication: {len(df)}")
@@ -97,9 +97,10 @@ gc.collect()
 
 
 # ==================== Train / Val / Test Split ====================
-# Fix: 70/15/15 split performed BEFORE any augmentation or embedding training; fixed seed applied
+# 70/15/15 split performed BEFORE any augmentation or embedding training
+# Fixed seed used for reproducibility
 
-# initial temporary split into 70/30 for train/(val+test)
+# First split off the 30% that will become val + test
 X_train_text, X_temp_text, y_train, y_temp = train_test_split(
     X_text, y,
     test_size=0.30,
@@ -107,7 +108,7 @@ X_train_text, X_temp_text, y_train, y_temp = train_test_split(
     stratify=y
 )
 
-# split the 30% into 15% validation set, 15% test set
+# Split the remaining 30% evenly into val (15%) and test (15%)
 X_val_text, X_test_text, y_val, y_test = train_test_split(
     X_temp_text, y_temp,
     test_size=0.50,
@@ -156,7 +157,7 @@ gc.collect()
 
 print(f"TF-IDF matrix shape (train): {X_dense_train.shape}")
 
-# FIX: Apply SMOTE to the training set only (no leakage into val/test)
+# Apply SMOTE to the training set only (correct methodology, no leakage into val/test)
 print("\nApplying SMOTE to training set only (after split)...")
 smote = SMOTE(sampling_strategy='not majority', random_state=GLOBAL_SEED)
 X_resampled, y_resampled = smote.fit_resample(X_dense_train, y_train)
@@ -271,7 +272,7 @@ print(f"\nSample preprocessed tokens (train row 0):\n  {tokenized_train.iloc[0][
 
 
 # ==================== Word2Vec Embeddings ====================
-# FIX: Word2Vec is trained on the training corpus only to prevent leakage into val/test
+# Word2Vec is trained on the training corpus only to prevent leakage into val/test
 
 print("\nTraining Word2Vec on training corpus only (after split)...")
 # 100d vector for every word
@@ -334,10 +335,10 @@ encoded_test  = tokenized_test.apply(encode)
 del tokenized_train, tokenized_val, tokenized_test
 gc.collect()
 
-# FIX: Get length of each sequence, computed from training set only to prevent leakage
+# Get length of each sequence computed from training set only to prevent leakage
 lengths = encoded_train.apply(len)
 
-# FIX: Set max length as 95% of the longest sequence (derived from training set only)
+# Set max length as 95% of the longest sequence (derived from training set only)
 MAX_LEN = int(np.percentile(lengths, 95))
 
 # Show range of sequence lengths
@@ -438,7 +439,7 @@ class BiGRULSTM(nn.Module):
         )
 
         # LSTM layer receives the full BiGRU output sequence
-        # NOTE: input size multiplied by 2 to account for forwards & backwards processing done in BiGRU
+        # input size multiplied by 2 to account for forwards & backwards processing done in BiGRU
         self.lstm = nn.LSTM(
             input_size=hidden_dim * 2,
             hidden_size=lstm_dim,
@@ -486,7 +487,7 @@ NUM_CLASSES = 3     # 3-class sentiment classification
 DROPOUT = 0.3       # 30% dropout rate (not specified)
 EPOCHS = 10         # 10 Training epochs
 LR = 1e-3           # common baseline learning rate (not specified)
-PATIENCE = 5        # early stopping patience
+PATIENCE = 3        # early stopping patience (halt if val loss does not improve for 3 consecutive epochs)
 
 # Verify GPU available before training
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -649,10 +650,10 @@ for epoch in range(1, EPOCHS + 1):
         best_val_loss = val_metrics["loss"]
         epochs_without_improvement = 0
         torch.save(model.state_dict(), best_model_path)
-        print(f"  SUCCESS: Val loss improved - checkpoint saved to {best_model_path}")
+        print(f" SUCCESS: Val loss improved - checkpoint saved to {best_model_path}")
     else:
         epochs_without_improvement += 1
-        print(f"  No improvement ({epochs_without_improvement}/{PATIENCE})")
+        print(f" FAILURE: No improvement ({epochs_without_improvement}/{PATIENCE})")
         if epochs_without_improvement >= PATIENCE:
             print(f"\nEarly stopping triggered at epoch {epoch}.")
             break
@@ -701,5 +702,10 @@ results_path = os.path.join("results", "baseline_corrected_results.csv")
 write_header = not os.path.exists(results_path)
 results_df.to_csv(results_path, mode='a', header=write_header, index=False)
 print(f"\nMetrics saved to {results_path}")
+
+# Save prediction arrays for evaluate.py (ROC curves, confusion matrices)
+npz_path = os.path.join("results", "baseline_corrected_preds.npz")
+np.savez(npz_path, labels=final_labels, preds=final_preds, probs=final_probs)
+print(f"Predictions saved to {npz_path}")
 
 print("\n========= Training Complete =========")

@@ -614,5 +614,10 @@ results_path = os.path.join("results", "baseline_flawed_results.csv")
 write_header = not os.path.exists(results_path)
 results_df.to_csv(results_path, mode='a', header=write_header, index=False)
 print(f"\nMetrics saved to {results_path}")
+
+# Save prediction arrays for evaluate.py (ROC curves, confusion matrices)
+npz_path = os.path.join("results", "baseline_flawed_preds.npz")
+np.savez(npz_path, labels=final_labels, preds=final_preds, probs=final_probs)
+print(f"Predictions saved to {npz_path}")
  
 print("\n========= Training Complete =========")

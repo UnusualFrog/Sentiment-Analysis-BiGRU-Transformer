@@ -727,9 +727,7 @@ print(classification_report(final_labels, final_preds, target_names=class_names,
 print("Confusion matrix (rows=actual, cols=predicted):")
 print(confusion_matrix(final_labels, final_preds))
  
-# Log hyperparameters alongside final test metrics for the reproducibility package
-# and ablation study; all settings that differ from baseline_corrected.py are
-# captured here so each run is self-documenting
+# Log hyperparameters alongside final test metrics for the reproducibility package/ablation study
 os.makedirs("results", exist_ok=True)
 results_row = {
     "run":          run_name,
@@ -751,5 +749,11 @@ results_path = os.path.join("results", "novel_model_results.csv")
 write_header = not os.path.exists(results_path)
 results_df.to_csv(results_path, mode='a', header=write_header, index=False)
 print(f"\nMetrics saved to {results_path}")
+
+# Save prediction arrays for evaluate.py (ROC curves, confusion matrices)
+npz_path = os.path.join("results", "novel_model_preds.npz")
+np.savez(npz_path, labels=final_labels, preds=final_preds, probs=final_probs)
+print(f"Predictions saved to {npz_path}")
+
  
 print("\n========= Training Complete =========")
