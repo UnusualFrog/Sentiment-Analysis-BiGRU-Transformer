@@ -402,3 +402,39 @@ gc.collect()
  
 print(f"\nFinal padded input shapes - Train: {X_train_padded.shape}, Val: {X_val_padded.shape}, Test: {X_test_padded.shape}")
 print(f"Final label array shapes  - Train: {y_train_array.shape}, Val: {y_val_array.shape}, Test: {y_test_array.shape}")
+
+# ==================== PyTorch Dataset & DataLoader ====================
+ 
+# Wrapper class for exposing tensors attributes through a streamlined interface
+class ReviewDataset(Dataset):
+    def __init__(self, X, y):
+        self.X = torch.tensor(X, dtype=torch.long)
+        self.y = torch.tensor(y, dtype=torch.long)
+ 
+    # Get count of total samples
+    def __len__(self) -> int:
+        return len(self.y)
+ 
+    # Get the sequence corresponding to the provided word index
+    def __getitem__(self, idx: int):
+        return self.X[idx], self.y[idx]
+ 
+# Batches of 64 samples, consistent across all variants
+BATCH_SIZE = 64
+ 
+# Construct dataloaders from pre-processed data splits
+train_loader = DataLoader(ReviewDataset(X_train_padded, y_train_array), batch_size=BATCH_SIZE, shuffle=True)
+val_loader   = DataLoader(ReviewDataset(X_val_padded,   y_val_array),   batch_size=BATCH_SIZE, shuffle=False)
+test_loader  = DataLoader(ReviewDataset(X_test_padded,  y_test_array),  batch_size=BATCH_SIZE, shuffle=False)
+ 
+# Retain the raw test labels array for figure generation after all variants finish
+y_test_array_for_figures = y_test_array.copy()
+ 
+# Free numpy splits from memory as dataloader holds copies
+del X_train_padded, X_val_padded, X_test_padded, y_train_array, y_val_array, y_test_array
+gc.collect()
+ 
+print(f"\nTrain batches : {len(train_loader)}")
+print(f"Val batches   : {len(val_loader)}")
+print(f"Test batches  : {len(test_loader)}")
+print("\n========= Preprocessing Complete — Beginning Ablation Variants =========")
