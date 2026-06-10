@@ -441,9 +441,10 @@ print("\n========= Preprocessing Complete - Beginning Ablation Variants ========
 
 # ==================== Model Definitions ====================
  
-# ------------------------------------------------------------------
-# Variant 1: BiGRU only - measure the contribution of BiGRU alone
-# ------------------------------------------------------------------
+
+# ========== Variant 1: BiGRU only ==========
+# measure the contribution of BiGRU alone
+
 class BiGRUOnly(nn.Module):
     def __init__(self, embedding_matrix, hidden_dim, num_classes, dropout):
         # Inherit properties from the base PyTorch neural network class
@@ -504,4 +505,277 @@ class BiGRUOnly(nn.Module):
  
  
 
+# ========== Variant 2: BiGRU + LSTM head ========== 
+# measure the contribution of BiGRU with an LSTM head
+# NOTE: this architecture is identical to baseline_corrected,
+#   but is re-created here to avoid any randomness introduced
+#   by importing external packages
 
+class BiGRULSTM(nn.Module):
+    def __init__(self, embedding_matrix, hidden_dim, lstm_dim, num_classes, dropout):
+        # Inherit properties from the base PyTorch neural network class
+        super(BiGRULSTM, self).__init__()
+ 
+        # Get vocab size and dimensions
+        vocab_size, embed_dim = embedding_matrix.shape
+ 
+        # Embedding layer initialised with pre-trained Word2Vec vocabulary weights
+        self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=PAD_IDX)
+ 
+        # Unfreeze the embedding layer to allow for fine-tuning during training
+        self.embedding.weight = nn.Parameter(torch.tensor(embedding_matrix, dtype=torch.float32), requires_grad=True)
+ 
+        # BiGRU layer processes the embedded sequence in both forward and backwards directions to capture broad word context
+        self.bigru = nn.GRU(
+            input_size=embed_dim,
+            hidden_size=hidden_dim,
+            batch_first=True,
+            bidirectional=True
+        )
+ 
+        # LSTM layer receives the full BiGRU output sequence
+        # input size multiplied by 2 to account for forwards & backwards processing done in BiGRU
+        self.lstm = nn.LSTM(
+            input_size=hidden_dim * 2,
+            hidden_size=lstm_dim,
+            batch_first=True
+        )
+ 
+        # Apply dropout layer before classification for regularization
+        self.dropout = nn.Dropout(dropout)
+ 
+        # Dense output layer maps the LSTM final hidden state to class logits (softmax is auto-applied by CEL)
+        self.fc = nn.Linear(lstm_dim, num_classes)
+ 
+    def forward(self, x):
+        # BiGRU batch_first means x = (batch, seq_len)
+ 
+        # dropout applied after embeddings layer to prevent overfitting on vocabulary
+        embedded = self.dropout(self.embedding(x))
+ 
+        # apply BiGRU to embedding output
+        gru_out, _ = self.bigru(embedded)
+ 
+        # apply dropout to BiGRU output
+        gru_out = self.dropout(gru_out)
+ 
+        # apply LSTM and capture only the final hidden state
+        _, (h_n, _) = self.lstm(gru_out)
+ 
+        # convert hidden state output to (batch, lstm_dim)
+        h_n = h_n.squeeze(0)
+ 
+        # apply dropout before classification
+        out = self.dropout(h_n)
+        # compute raw logits (softmax applied by CEL)
+        logits = self.fc(out)
+ 
+        return logits
+ 
+ 
+
+# ========== Variant 3: BiGRU + Transformer head ==========
+# measure the performance of BiGRU + Self Attention Transformer
+#   for comparison with variants 1 & 2
+# NOTE: this is identical to novel_model.py, reproduced here
+#  for the same reason as variant 2
+
+class SelfAttention(nn.Module):
+    def __init__(self, input_dim, num_heads):
+        # Inherit properties from the base PyTorch neural network class
+        super(SelfAttention, self).__init__()
+ 
+        # Multi-head attention requires input_dim to be divisible by num_heads so each
+        # head receives an equal portion of the feature space
+        self.attention = nn.MultiheadAttention(
+            embed_dim=input_dim,
+            num_heads=num_heads,
+            batch_first=True
+        )
+ 
+    def forward(self, x, key_padding_mask=None):
+        # Query, key, and value are all the same BiGRU output sequence (self-attention)
+        # key_padding_mask marks padding positions so they receive zero attention weight
+        attn_out, attn_weights = self.attention(
+            query=x,
+            key=x,
+            value=x,
+            key_padding_mask=key_padding_mask
+        )
+        return attn_out, attn_weights
+ 
+ 
+class BiGRUTransformer(nn.Module):
+    def __init__(self, embedding_matrix, hidden_dim, num_heads, num_classes, dropout):
+        # Inherit properties from the base PyTorch neural network class
+        super(BiGRUTransformer, self).__init__()
+ 
+        # Get vocab size and dimensions
+        vocab_size, embed_dim = embedding_matrix.shape
+ 
+        # Embedding layer initialised with pre-trained Word2Vec vocabulary weights
+        self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=PAD_IDX)
+ 
+        # Unfreeze the embedding layer to allow for fine-tuning during training
+        self.embedding.weight = nn.Parameter(torch.tensor(embedding_matrix, dtype=torch.float32), requires_grad=True)
+ 
+        # BiGRU layer processes the embedded sequence in both forward and backwards directions to capture broad word context
+        self.bigru = nn.GRU(
+            input_size=embed_dim,
+            hidden_size=hidden_dim,
+            batch_first=True,
+            bidirectional=True
+        )
+ 
+        # BiGRU output dimension is hidden_dim * 2 (forward + backward concatenated);
+        # this feeds directly into the self-attention layer in place of the LSTM
+        gru_out_dim = hidden_dim * 2
+ 
+        # Self-attention layer attends over all BiGRU hidden states simultaneously
+        self.attention = SelfAttention(input_dim=gru_out_dim, num_heads=num_heads)
+ 
+        # Apply dropout layer before classification for regularization
+        self.dropout = nn.Dropout(dropout)
+ 
+        # Dense output layer maps the mean-pooled values to class logits (softmax is auto-applied by CEL)
+        self.fc = nn.Linear(gru_out_dim, num_classes)
+ 
+    def forward(self, x):
+        # BiGRU batch_first means x = (batch, seq_len)
+ 
+        # padding mask is true at positions where the token is PAD_IDX so they recieve zero attention weight
+        padding_mask = (x == PAD_IDX)
+ 
+        # dropout applied after embeddings layer to prevent overfitting on vocabulary
+        embedded = self.dropout(self.embedding(x))
+ 
+        # apply BiGRU to embedding output; full sequence retained so attention can operate over every position
+        gru_out, _ = self.bigru(embedded)
+ 
+        # apply dropout to BiGRU output
+        gru_out = self.dropout(gru_out)
+ 
+        # apply self-attention over the full BiGRU sequence
+        attn_out, _ = self.attention(gru_out, key_padding_mask=padding_mask)
+ 
+        # convert padding tokens to value 0
+        attn_out = attn_out.masked_fill(padding_mask.unsqueeze(-1), 0.0)
+
+        # get count of non-padding tokens, inverse padding mask grabs any non-padding tokens 
+        # NOTE: clamped to min of 1 to prevent zero-division for seqeunces of all padding
+        non_pad_counts = (~padding_mask).sum(dim=1, keepdim=True).clamp(min=1).float()
+        # mean pooling of attention seqeunce (padding removed)
+        pooled = attn_out.sum(dim=1) / non_pad_counts
+ 
+        # apply dropout before classification
+        out = self.dropout(pooled)
+        # compute raw logits (softmax applied by CEL)
+        logits = self.fc(out)
+ 
+        return logits
+
+# ==================== Shared Hyperparameters ====================
+ 
+# All settings kept identical across variants so the only variable is
+# the classifier head
+# BATCH = 64        # Defined earlier in script for Dataloaders
+HIDDEN_DIM = 128    # GRU units per direction (128 forwards, 128 backwards = 256 total)
+LSTM_DIM = 128      # LSTM hidden state unit count (Variant 2 only)
+NUM_HEADS = 4       # attention heads (Variant 3 only); 256 / 4 = 64 per head
+NUM_CLASSES = 3     # 3-class sentiment classification
+DROPOUT = 0.3       # 30% dropout rate
+EPOCHS = 10         # 10 Training epochs
+LR = 1e-3           # learning rate
+PATIENCE    = 3     # early stopping patience
+ 
+#  Verifty GPU usage
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f"\nTraining on: {device}")
+ 
+ 
+# ==================== Train & Evaluate ====================
+
+def train_epoch(model, loader, criterion, optimizer, device):
+    # Set model to training model
+    model.train()
+    # initalize tracking variables
+    total_loss = 0
+    all_preds = []
+    all_labels = []
+ 
+    # Loop through each seqeunce in the data loader
+    for sequences, labels in loader:
+        # Use GPU
+        sequences = sequences.to(device)
+        labels = labels.to(device)
+ 
+        # reset gradients
+        optimizer.zero_grad()
+        # compute forward pass to produce raw logits
+        logits = model(sequences)
+        # pass logits to CEL for softmax classification and loss calculation
+        loss = criterion(logits, labels)
+        # compute backwards pass
+        loss.backward()
+        # update weights using LR step magnitude
+        optimizer.step()
+ 
+        # track loss and predictions to calculate evaluation metrics
+        total_loss += loss.item()
+        preds = torch.argmax(logits, dim=1)
+        all_preds.extend(preds.cpu().numpy())
+        all_labels.extend(labels.cpu().numpy())
+ 
+    # compute average loss and accuracy
+    avg_loss = total_loss / len(loader)
+    acc = accuracy_score(all_labels, all_preds)
+    return avg_loss, acc
+ 
+ 
+def evaluate(model, loader, criterion, device):
+    # Set model to eval mode to disable dropout during inference
+    model.eval()
+    # initialize tracking variables
+    total_loss = 0
+    all_preds = []
+    all_labels = []
+    all_probs = []
+ 
+    # Disable gradient computation during evaluation (no updates)
+    with torch.no_grad():
+        # Loop through each sequence
+        for sequences, labels in loader:
+            # Use GPU
+            sequences = sequences.to(device)
+            labels = labels.to(device)
+ 
+            # forward pass
+            logits = model(sequences)
+            # softmax & loss
+            loss = criterion(logits, labels)
+            # track loss
+            total_loss += loss.item()
+ 
+            # Convert logits to probabilities for AUC computation
+            probs = torch.softmax(logits, dim=1)
+            preds = torch.argmax(probs, dim=1)
+ 
+            # track outputs for evaluation metric computations
+            all_probs.extend(probs.cpu().numpy())
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+ 
+    avg_loss = total_loss / len(loader)
+    all_probs = np.array(all_probs)
+ 
+    # Compute evaluation metrics
+    metrics = {
+        "loss":      avg_loss,
+        "accuracy":  accuracy_score(all_labels, all_preds),
+        "precision": precision_score(all_labels, all_preds, average='macro', zero_division=0),
+        "recall":    recall_score(all_labels, all_preds, average='macro', zero_division=0),
+        "f1":        f1_score(all_labels, all_preds, average='macro', zero_division=0),
+        "auc":       roc_auc_score(all_labels, all_probs, multi_class='ovr', average='macro'),
+    }
+ 
+    return metrics, all_preds, all_labels, all_probs
