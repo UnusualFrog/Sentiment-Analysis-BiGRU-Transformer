@@ -862,200 +862,228 @@ def train_variant(model, variant_name, epochs, patience):
     return final_metrics, final_preds, final_labels, final_probs
  
  
-# # ==================== Run All Three Variants ====================
+# ==================== Run All Three Variants ====================
  
-# all_results = {}   # keyed by variant_name
+ # initialise dict for holding results keyed by variant name
+all_results = {}
  
-# # --- Variant 1: BiGRU only ---
-# torch.manual_seed(GLOBAL_SEED)
-# model_v1 = BiGRUOnly(
-#     embedding_matrix=embedding_matrix,
-#     hidden_dim=HIDDEN_DIM,
-#     num_classes=NUM_CLASSES,
-#     dropout=DROPOUT
-# ).to(device)
+# --- Variant 1: BiGRU only ---
+
+# set seed for consistency
+torch.manual_seed(GLOBAL_SEED)
+
+# Initialize BiGRUOnly variant on GPU
+model_v1 = BiGRUOnly(
+    embedding_matrix=embedding_matrix,
+    hidden_dim=HIDDEN_DIM,
+    num_classes=NUM_CLASSES,
+    dropout=DROPOUT
+).to(device)
  
-# metrics_v1, preds_v1, labels_v1, probs_v1 = train_variant(
-#     model_v1, "bigru_only", EPOCHS, PATIENCE
-# )
-# all_results["BiGRU Only\n(no classifier)"] = metrics_v1
+#  train variant one
+metrics_v1, preds_v1, labels_v1, probs_v1 = train_variant(
+    model_v1, "bigru_only", EPOCHS, PATIENCE
+)
+# record metrics
+all_results["BiGRU Only\n(no classifier)"] = metrics_v1
  
-# del model_v1
-# gc.collect()
-# torch.cuda.empty_cache()
+#  reclaim memory
+del model_v1
+gc.collect()
+torch.cuda.empty_cache()
  
-# # --- Variant 2: BiGRU + LSTM head ---
-# torch.manual_seed(GLOBAL_SEED)
-# model_v2 = BiGRULSTM(
-#     embedding_matrix=embedding_matrix,
-#     hidden_dim=HIDDEN_DIM,
-#     lstm_dim=LSTM_DIM,
-#     num_classes=NUM_CLASSES,
-#     dropout=DROPOUT
-# ).to(device)
+# --- Variant 2: BiGRU + LSTM head ---
+
+# set seed for consistency
+torch.manual_seed(GLOBAL_SEED)
+
+# Initialise BiGRU + LSTM variant to gpu
+model_v2 = BiGRULSTM(
+    embedding_matrix=embedding_matrix,
+    hidden_dim=HIDDEN_DIM,
+    lstm_dim=LSTM_DIM,
+    num_classes=NUM_CLASSES,
+    dropout=DROPOUT
+).to(device)
  
-# metrics_v2, preds_v2, labels_v2, probs_v2 = train_variant(
-#     model_v2, "bigru_lstm", EPOCHS, PATIENCE
-# )
-# all_results["BiGRU + LSTM\n(corrected baseline)"] = metrics_v2
+ # train variant 2
+metrics_v2, preds_v2, labels_v2, probs_v2 = train_variant(
+    model_v2, "bigru_lstm", EPOCHS, PATIENCE
+)
+# record metrics
+all_results["BiGRU + LSTM\n(corrected baseline)"] = metrics_v2
  
-# del model_v2
-# gc.collect()
-# torch.cuda.empty_cache()
+#  reclaim memory
+del model_v2
+gc.collect()
+torch.cuda.empty_cache()
  
-# # --- Variant 3: BiGRU + Transformer head ---
-# torch.manual_seed(GLOBAL_SEED)
-# model_v3 = BiGRUTransformer(
-#     embedding_matrix=embedding_matrix,
-#     hidden_dim=HIDDEN_DIM,
-#     num_heads=NUM_HEADS,
-#     num_classes=NUM_CLASSES,
-#     dropout=DROPOUT
-# ).to(device)
+# --- Variant 3: BiGRU + Transformer head ---
+
+# set seed for consistency
+torch.manual_seed(GLOBAL_SEED)
+
+# Initialise BiGRU + Transformer variant to gpu
+model_v3 = BiGRUTransformer(
+    embedding_matrix=embedding_matrix,
+    hidden_dim=HIDDEN_DIM,
+    num_heads=NUM_HEADS,
+    num_classes=NUM_CLASSES,
+    dropout=DROPOUT
+).to(device)
  
-# metrics_v3, preds_v3, labels_v3, probs_v3 = train_variant(
-#     model_v3, "bigru_transformer", EPOCHS, PATIENCE
-# )
-# all_results["BiGRU + Transformer\n(proposed)"] = metrics_v3
+#  train variant 3
+metrics_v3, preds_v3, labels_v3, probs_v3 = train_variant(
+    model_v3, "bigru_transformer", EPOCHS, PATIENCE
+)
+# record metrics
+all_results["BiGRU + Transformer\n(proposed)"] = metrics_v3
  
-# del model_v3
-# gc.collect()
-# torch.cuda.empty_cache()
- 
- 
-# # ==================== Save Ablation Results CSV ====================
- 
-# results_path = os.path.join(RESULTS_DIR, "ablation_results.csv")
-# rows = []
-# for variant_label, metrics in all_results.items():
-#     rows.append({
-#         "variant":   variant_label.replace("\n", " "),
-#         "accuracy":  metrics["accuracy"],
-#         "precision": metrics["precision"],
-#         "recall":    metrics["recall"],
-#         "f1":        metrics["f1"],
-#         "auc":       metrics["auc"],
-#     })
- 
-# pd.DataFrame(rows).to_csv(results_path, index=False)
-# print(f"\nAblation results saved to {results_path}")
- 
- 
-# # ==================== Print Ablation Table ====================
- 
-# print("\n" + "=" * 65)
-# print("ABLATION STUDY RESULTS TABLE")
-# print("=" * 65)
-# print(f"{'Variant':<35} {'Accuracy':>8} {'Macro F1':>8} {'AUC':>6}")
-# print("-" * 65)
-# for row in rows:
-#     print(f"{row['variant']:<35} {row['accuracy']:>8.4f} {row['f1']:>8.4f} {row['auc']:>6.4f}")
-# print("=" * 65)
+#  reclaim memory
+del model_v3
+gc.collect()
+torch.cuda.empty_cache()
  
  
-# # ==================== Figure 5: Per-class F1 Bar Chart ====================
+# ==================== Record Results & Figures ====================
+
+# Save a matplotlib figure with a specified filename as a png file
+def save_fig(fig, name):
+    path = os.path.join(FIGURES_DIR, f"{name}.png")
+    fig.savefig(path, bbox_inches="tight", dpi=150)
+    print(f"  Saved: {path}")
+    plt.close(fig)
  
-# def plot_per_class_f1():
-#     """
-#     Grouped bar chart showing per-class F1 for all three ablation variants.
-#     Highlights minority-class (Negative, Neutral) improvements across variants.
-#     """
-#     print("\n[5/6] Plotting per-class F1 bar chart...")
+# Save ablation results to csv
+results_path = os.path.join(RESULTS_DIR, "ablation_results.csv")
+rows = []
+for variant_label, metrics in all_results.items():
+    rows.append({
+        "variant": variant_label.replace("\n", " "),
+        "accuracy": metrics["accuracy"],
+        "precision": metrics["precision"],
+        "recall": metrics["recall"],
+        "f1": metrics["f1"],
+        "auc": metrics["auc"],
+    })
  
-#     # Compute per-class F1 for each variant
-#     variants_data = [
-#         ("BiGRU Only",          labels_v1, preds_v1),
-#         ("BiGRU + LSTM",        labels_v2, preds_v2),
-#         ("BiGRU + Transformer", labels_v3, preds_v3),
-#     ]
- 
-#     # f1_matrix[variant_idx][class_idx]
-#     f1_matrix = []
-#     for _, labels, preds in variants_data:
-#         per_class_f1 = f1_score(labels, preds, average=None, zero_division=0)
-#         f1_matrix.append(per_class_f1)
- 
-#     variant_names = [v[0] for v in variants_data]
-#     n_variants    = len(variant_names)
-#     n_classes     = NUM_CLASSES
- 
-#     bar_width  = 0.22
-#     x          = np.arange(n_classes)
-#     colors     = ["#e74c3c", "#3498db", "#2ecc71"]
- 
-#     fig, ax = plt.subplots(figsize=(9, 5))
- 
-#     for i, (variant_name, f1_vals) in enumerate(zip(variant_names, f1_matrix)):
-#         offset = (i - n_variants / 2 + 0.5) * bar_width
-#         bars = ax.bar(
-#             x + offset, f1_vals,
-#             width=bar_width,
-#             label=variant_name,
-#             color=colors[i],
-#             edgecolor="black",
-#             linewidth=0.6
-#         )
-#         # Annotate each bar
-#         for bar, val in zip(bars, f1_vals):
-#             ax.text(
-#                 bar.get_x() + bar.get_width() / 2,
-#                 bar.get_height() + 0.005,
-#                 f"{val:.3f}",
-#                 ha="center", va="bottom", fontsize=8
-#             )
- 
-#     ax.set_xticks(x)
-#     ax.set_xticklabels(CLASS_NAMES, fontsize=11)
-#     ax.set_ylabel("F1-score", fontsize=11)
-#     ax.set_ylim(0, 1.1)
-#     ax.set_title("Per-class F1 - Ablation Study", fontsize=13)
-#     ax.legend(fontsize=9, loc="lower right")
-#     ax.grid(True, axis="y", alpha=0.3)
-#     ax.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.2f"))
-#     fig.tight_layout()
-#     save_fig(fig, "ablation_per_class_f1")
+pd.DataFrame(rows).to_csv(results_path, index=False)
+print(f"\nAblation results saved to {results_path}")
  
  
-# # ==================== Figure 6: Overall Accuracy Bar Chart (Ablation) ====================
- 
-# def plot_ablation_accuracy():
-#     """
-#     Bar chart comparing overall test accuracy across the three ablation variants.
-#     Complements the per-class chart and maps directly to the ablation table.
-#     """
-#     print("\n[6/6] Plotting ablation accuracy bar chart...")
- 
-#     variant_names = list(all_results.keys())
-#     accuracies    = [m["accuracy"] for m in all_results.values()]
-#     colors        = ["#e74c3c", "#3498db", "#2ecc71"]
- 
-#     fig, ax = plt.subplots(figsize=(8, 5))
-#     bars = ax.bar(
-#         variant_names, accuracies,
-#         color=colors, width=0.45,
-#         edgecolor="black", linewidth=0.7
-#     )
- 
-#     for bar, acc in zip(bars, accuracies):
-#         ax.text(
-#             bar.get_x() + bar.get_width() / 2,
-#             bar.get_height() + 0.003,
-#             f"{acc:.4f}",
-#             ha="center", va="bottom", fontsize=10, fontweight="bold"
-#         )
- 
-#     ax.set_ylim(0, min(1.0, max(accuracies) + 0.08))
-#     ax.set_ylabel("Test Accuracy", fontsize=11)
-#     ax.set_title("Overall Accuracy - Ablation Study", fontsize=13)
-#     ax.yaxis.set_major_formatter(mticker.PercentFormatter(xmax=1.0, decimals=1))
-#     ax.grid(True, axis="y", alpha=0.3)
-#     fig.tight_layout()
-#     save_fig(fig, "ablation_accuracy_bar")
+# Print Ablation Table 
+print("\n" + "=" * 65)
+print("ABLATION STUDY RESULTS TABLE")
+print("=" * 65)
+print(f"{'Variant':<35} {'Accuracy':>8} {'Macro F1':>8} {'AUC':>6}")
+print("-" * 65)
+for row in rows:
+    print(f"{row['variant']:<35} {row['accuracy']:>8.4f} {row['f1']:>8.4f} {row['auc']:>6.4f}")
+print("=" * 65)
  
  
-# # ==================== Generate Ablation Figures ====================
+# Per-class F1 bar chart by model variant
+def plot_per_class_f1():
+    print("\n Plotting per-class F1 bar chart...")
  
-# plot_per_class_f1()
-# plot_ablation_accuracy()
+    # Compute per-class F1 for each variant
+    variants_data = [
+        ("BiGRU Only", labels_v1, preds_v1),
+        ("BiGRU + LSTM", labels_v2, preds_v2),
+        ("BiGRU + Transformer", labels_v3, preds_v3),
+    ]
  
-# print("\n========= ablation.py Complete - results and figures saved =========")
+    f1_matrix = []
+    # loop through each variant and calculate f1_score for class labels
+    for _, labels, preds in variants_data:
+        per_class_f1 = f1_score(labels, preds, average=None, zero_division=0)
+        f1_matrix.append(per_class_f1)
+    
+    # Get variant metadata
+    variant_names = [v[0] for v in variants_data]
+    n_variants = len(variant_names)
+    n_classes = NUM_CLASSES
+    
+    # Figure styling
+    bar_width = 0.22
+    x = np.arange(n_classes)
+    colors = ["#e74c3c", "#3498db", "#2ecc71"]
+    
+    fig, ax = plt.subplots(figsize=(9, 5))
+    
+    # Plot each variant 
+    for i, (variant_name, f1_vals) in enumerate(zip(variant_names, f1_matrix)):
+        offset = (i - n_variants / 2 + 0.5) * bar_width
+        # bars corrspond to class f1_scores
+        bars = ax.bar(
+            x + offset, f1_vals,
+            width=bar_width,
+            label=variant_name,
+            color=colors[i],
+            edgecolor="black",
+            linewidth=0.6
+        )
+        # Annotate each bar
+        for bar, val in zip(bars, f1_vals):
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                bar.get_height() + 0.005,
+                f"{val:.3f}",
+                ha="center", va="bottom", fontsize=8
+            )
+    
+    # Format and save figure
+    ax.set_xticks(x)
+    ax.set_xticklabels(CLASS_NAMES, fontsize=11)
+    ax.set_ylabel("F1-score", fontsize=11)
+    ax.set_ylim(0, 1.1)
+    ax.set_title("Per-class F1 - Ablation Study", fontsize=13)
+    ax.legend(fontsize=9, loc="lower right")
+    ax.grid(True, axis="y", alpha=0.3)
+    ax.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.2f"))
+    fig.tight_layout()
+    save_fig(fig, "ablation_per_class_f1")
+ 
+ 
+# Overall Accuracy Bar Chart comparing test accuracy across all three variants
+ 
+def plot_ablation_accuracy():
+    print("\n Plotting ablation accuracy bar chart...")
+    
+    # Figure styling
+    variant_names = list(all_results.keys())
+    accuracies = [m["accuracy"] for m in all_results.values()]
+    colors = ["#e74c3c", "#3498db", "#2ecc71"]
+    
+    # generate bar chart
+    fig, ax = plt.subplots(figsize=(8, 5))
+    bars = ax.bar(
+        variant_names, accuracies,
+        color=colors, width=0.45,
+        edgecolor="black", linewidth=0.7
+    )
+    
+    # label each bar with exact accuracy value
+    for bar, acc in zip(bars, accuracies):
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.003,
+            f"{acc:.4f}",
+            ha="center", va="bottom", fontsize=10, fontweight="bold"
+        )
+    
+    # Style and save figure
+    ax.set_ylim(0, min(1.0, max(accuracies) + 0.08))
+    ax.set_ylabel("Test Accuracy", fontsize=11)
+    ax.set_title("Overall Accuracy - Ablation Study", fontsize=13)
+    ax.yaxis.set_major_formatter(mticker.PercentFormatter(xmax=1.0, decimals=1))
+    ax.grid(True, axis="y", alpha=0.3)
+    fig.tight_layout()
+    save_fig(fig, "ablation_accuracy_bar")
+ 
+ 
+#  Generate Figures
+plot_per_class_f1()
+plot_ablation_accuracy()
+ 
+print("\n========= Ablation Compelete =========")

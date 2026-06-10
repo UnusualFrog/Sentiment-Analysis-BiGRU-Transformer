@@ -122,11 +122,11 @@ gc.collect()
 
 # Reset indices on all splits for downstream consistency
 X_train_text = X_train_text.reset_index(drop=True)
-X_val_text   = X_val_text.reset_index(drop=True)
-X_test_text  = X_test_text.reset_index(drop=True)
+X_val_text = X_val_text.reset_index(drop=True)
+X_test_text = X_test_text.reset_index(drop=True)
 y_train = y_train.reset_index(drop=True)
-y_val   = y_val.reset_index(drop=True)
-y_test  = y_test.reset_index(drop=True)
+y_val = y_val.reset_index(drop=True)
+y_test = y_test.reset_index(drop=True)
 
 print(f"\nTrain size : {len(X_train_text)}")
 print(f"Val size   : {len(X_val_text)}")
@@ -400,8 +400,8 @@ class ReviewDataset(Dataset):
 BATCH_SIZE = 64
 
 train_loader = DataLoader(ReviewDataset(X_train_padded, y_train_array), batch_size=BATCH_SIZE, shuffle=True)
-val_loader   = DataLoader(ReviewDataset(X_val_padded,   y_val_array),   batch_size=BATCH_SIZE, shuffle=False)
-test_loader  = DataLoader(ReviewDataset(X_test_padded,  y_test_array),  batch_size=BATCH_SIZE, shuffle=False)
+val_loader = DataLoader(ReviewDataset(X_val_padded, y_val_array), batch_size=BATCH_SIZE, shuffle=False)
+test_loader = DataLoader(ReviewDataset(X_test_padded, y_test_array), batch_size=BATCH_SIZE, shuffle=False)
 
 # Free numpy splits from memory as dataloader holds copies
 del X_train_padded, X_val_padded, X_test_padded, y_train_array, y_val_array, y_test_array
@@ -487,7 +487,7 @@ NUM_CLASSES = 3     # 3-class sentiment classification
 DROPOUT = 0.3       # 30% dropout rate (not specified)
 EPOCHS = 10         # 10 Training epochs
 LR = 1e-3           # common baseline learning rate (not specified)
-PATIENCE = 3        # early stopping patience (halt if val loss does not improve for 3 consecutive epochs)
+PATIENCE = 5        # early stopping patience (halt if val loss does not improve for 3 consecutive epochs)
 
 # Verify GPU available before training
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -602,12 +602,12 @@ def evaluate(model, loader, criterion, device):
 
     # Compute evaluation metrics
     metrics = {
-        "loss":      avg_loss,
-        "accuracy":  accuracy_score(all_labels, all_preds),
+        "loss": avg_loss,
+        "accuracy": accuracy_score(all_labels, all_preds),
         "precision": precision_score(all_labels, all_preds, average='macro', zero_division=0),
-        "recall":    recall_score(all_labels, all_preds, average='macro', zero_division=0),
-        "f1":        f1_score(all_labels, all_preds, average='macro', zero_division=0),
-        "auc":       roc_auc_score(all_labels, all_probs, multi_class='ovr', average='macro'),
+        "recall": recall_score(all_labels, all_preds, average='macro', zero_division=0),
+        "f1": f1_score(all_labels, all_preds, average='macro', zero_division=0),
+        "auc": roc_auc_score(all_labels, all_probs, multi_class='ovr', average='macro'),
     }
 
     return metrics, all_preds, all_labels, all_probs
@@ -632,12 +632,12 @@ for epoch in range(1, EPOCHS + 1):
     val_metrics, _, _, _ = evaluate(model, val_loader, criterion, device)
 
     # Write evaluation metrics to log file for tensorboard tracking
-    writer.add_scalar("Loss/train",     train_loss,              epoch)
-    writer.add_scalar("Loss/val",       val_metrics["loss"],     epoch)
-    writer.add_scalar("Accuracy/train", train_acc,               epoch)
-    writer.add_scalar("Accuracy/val",   val_metrics["accuracy"], epoch)
-    writer.add_scalar("F1/val",         val_metrics["f1"],       epoch)
-    writer.add_scalar("AUC/val",        val_metrics["auc"],      epoch)
+    writer.add_scalar("Loss/train", train_loss, epoch)
+    writer.add_scalar("Loss/val", val_metrics["loss"], epoch)
+    writer.add_scalar("Accuracy/train", train_acc, epoch)
+    writer.add_scalar("Accuracy/val", val_metrics["accuracy"], epoch)
+    writer.add_scalar("F1/val", val_metrics["f1"], epoch)
+    writer.add_scalar("AUC/val", val_metrics["auc"], epoch)
 
     # Display evaluation metrics on a per-epoch basis
     print(f"Epoch {epoch:02d}/{EPOCHS} | ")
@@ -690,12 +690,12 @@ print(confusion_matrix(final_labels, final_preds))
 # Save metrics to CSV for paper reporting
 os.makedirs("results", exist_ok=True)
 results_row = {
-    "run":       run_name,
-    "accuracy":  final_metrics["accuracy"],
+    "run": run_name,
+    "accuracy": final_metrics["accuracy"],
     "precision": final_metrics["precision"],
-    "recall":    final_metrics["recall"],
-    "f1":        final_metrics["f1"],
-    "auc":       final_metrics["auc"],
+    "recall": final_metrics["recall"],
+    "f1": final_metrics["f1"],
+    "auc": final_metrics["auc"],
 }
 results_df = pd.DataFrame([results_row])
 results_path = os.path.join("results", "baseline_corrected_results.csv")

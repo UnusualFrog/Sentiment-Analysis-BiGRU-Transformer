@@ -131,7 +131,7 @@ n_original = len(X_text)
 X_text_reset = X_text.reset_index(drop=True)
 y_original = y.reset_index(drop=True).values
 
-# Free the original X_text and y series — X_text_reset and y_original are the working copies
+# Free the original X_text and y series - X_text_reset and y_original are the working copies
 del X_text, y
 gc.collect()
  
@@ -148,7 +148,6 @@ for i in range(len(X_resampled)):
         resampled_texts.append(X_text_reset.iloc[i])
     # Synethetic samples are inserted at a random position of the same class as an original sample
     else:
-        # Synthetic sample — randomly draw a same-class original text.
         cls = y_resampled[i]
         rand_idx = np.random.choice(class_indices[cls])
         resampled_texts.append(X_text_reset.iloc[rand_idx])
@@ -170,7 +169,7 @@ stop_words = set(stopwords.words('english'))
  
 # Apply full text preprocessing, including, lowercasing, removal of URLs, 
 #   hashtags, @ mentions, punctuation & non alphabetic charcaters, 
-#   word tokenization, stop word removal, single character and token removal
+#   word tokenization, stop word removal, and single character token removal
 def preprocess(text):
     # 1. Lowercase
     text = text.lower()
@@ -271,7 +270,7 @@ lengths = encoded_sequences.apply(len)
 MAX_LEN = int(np.percentile(lengths, 95))
 
 # Show range of sequence lengths
-print(f"\nSequence length — min: {lengths.min()}, "
+print(f"\nSequence length - min: {lengths.min()}, "
       f"mean: {lengths.mean():.0f}, 95th pct: {MAX_LEN}, max: {lengths.max()}")
 
 # Pads or truncates a sequence until it reaches max length
@@ -340,7 +339,7 @@ class ReviewDataset(Dataset):
 BATCH_SIZE = 64
  
 train_loader = DataLoader(ReviewDataset(X_train, y_train), batch_size=BATCH_SIZE, shuffle=True)
-test_loader  = DataLoader(ReviewDataset(X_test,  y_test),  batch_size=BATCH_SIZE, shuffle=False)
+test_loader  = DataLoader(ReviewDataset(X_test, y_test), batch_size=BATCH_SIZE, shuffle=False)
 
 # Free numpy splits from memory as dataloader holds copies
 del X_train, X_test, y_train, y_test
@@ -452,7 +451,7 @@ criterion = nn.CrossEntropyLoss()
 # Adam optimiser (assumed based on common practicces and reference in original work's literature review)
 optimizer = torch.optim.Adam(model.parameters(), lr=LR)
  
-print("\n========= Model Initialised — Ready for Training =========")
+print("\n========= Model Initialised - Ready for Training =========")
 
 # ==================== TensorBoard Writer ====================
 
@@ -537,12 +536,12 @@ def evaluate(model, loader, criterion, device):
     
     # Compute evaluation metrics
     metrics = {
-        "loss":      avg_loss,
-        "accuracy":  accuracy_score(all_labels, all_preds),
+        "loss": avg_loss,
+        "accuracy": accuracy_score(all_labels, all_preds),
         "precision": precision_score(all_labels, all_preds, average='macro', zero_division=0),
-        "recall":    recall_score(all_labels, all_preds, average='macro', zero_division=0),
-        "f1":        f1_score(all_labels, all_preds, average='macro', zero_division=0),
-        "auc":       roc_auc_score(all_labels, all_probs, multi_class='ovr', average='macro'),
+        "recall": recall_score(all_labels, all_preds, average='macro', zero_division=0),
+        "f1": f1_score(all_labels, all_preds, average='macro', zero_division=0),
+        "auc": roc_auc_score(all_labels, all_probs, multi_class='ovr', average='macro'),
     }
  
     return metrics, all_preds, all_labels, all_probs
@@ -550,7 +549,7 @@ def evaluate(model, loader, criterion, device):
  
 # ==================== Run Training ====================
  
-print(f"\nStarting training — {EPOCHS} total epochs")
+print(f"\nStarting training - {EPOCHS} total epochs")
 print(f"TensorBoard run: results/logs/{run_name}\n")
  
 #  Loop through epochs
@@ -561,12 +560,12 @@ for epoch in range(1, EPOCHS + 1):
     test_metrics, _, _, _ = evaluate(model, test_loader, criterion, device)
     
     # Write evaluation metrics to log file for tensorboard tracking
-    writer.add_scalar("Loss/train",      train_loss,               epoch)
-    writer.add_scalar("Loss/test",       test_metrics["loss"],     epoch)
-    writer.add_scalar("Accuracy/train",  train_acc,                epoch)
-    writer.add_scalar("Accuracy/test",   test_metrics["accuracy"], epoch)
-    writer.add_scalar("F1/test",         test_metrics["f1"],       epoch)
-    writer.add_scalar("AUC/test",        test_metrics["auc"],      epoch)
+    writer.add_scalar("Loss/train", train_loss, epoch)
+    writer.add_scalar("Loss/test", test_metrics["loss"], epoch)
+    writer.add_scalar("Accuracy/train", train_acc, epoch)
+    writer.add_scalar("Accuracy/test", test_metrics["accuracy"], epoch)
+    writer.add_scalar("F1/test", test_metrics["f1"], epoch)
+    writer.add_scalar("AUC/test", test_metrics["auc"], epoch)
     
     # Display evaluation metrics on a per-epoch basis
     print(f"Epoch {epoch:02d}/{EPOCHS} | ")
@@ -602,12 +601,12 @@ print(confusion_matrix(final_labels, final_preds))
 # Save metrics to CSV for paper reporting
 os.makedirs("results", exist_ok=True)
 results_row = {
-    "run":       run_name,
-    "accuracy":  final_metrics["accuracy"],
+    "run": run_name,
+    "accuracy": final_metrics["accuracy"],
     "precision": final_metrics["precision"],
-    "recall":    final_metrics["recall"],
-    "f1":        final_metrics["f1"],
-    "auc":       final_metrics["auc"],
+    "recall": final_metrics["recall"],
+    "f1": final_metrics["f1"],
+    "auc": final_metrics["auc"],
 }
 results_df = pd.DataFrame([results_row])
 results_path = os.path.join("results", "baseline_flawed_results.csv")
