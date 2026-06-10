@@ -122,11 +122,11 @@ gc.collect()
 
 # Reset indices on all splits for downstream consistency
 X_train_text = X_train_text.reset_index(drop=True)
-X_val_text   = X_val_text.reset_index(drop=True)
-X_test_text  = X_test_text.reset_index(drop=True)
+X_val_text = X_val_text.reset_index(drop=True)
+X_test_text = X_test_text.reset_index(drop=True)
 y_train = y_train.reset_index(drop=True)
-y_val   = y_val.reset_index(drop=True)
-y_test  = y_test.reset_index(drop=True)
+y_val = y_val.reset_index(drop=True)
+y_test = y_test.reset_index(drop=True)
 
 print(f"\nTrain size : {len(X_train_text)}")
 print(f"Val size   : {len(X_val_text)}")
@@ -247,8 +247,8 @@ def preprocess(text):
 
 print("\nRunning NLP preprocessing pipeline on all splits...")
 tokenized_train = X_train_text_resampled.apply(preprocess)
-tokenized_val   = X_val_text.apply(preprocess)
-tokenized_test  = X_test_text.apply(preprocess)
+tokenized_val = X_val_text.apply(preprocess)
+tokenized_test = X_test_text.apply(preprocess)
 
 # Free the raw text series for memory
 del X_train_text_resampled, X_val_text, X_test_text
@@ -257,7 +257,7 @@ gc.collect()
 # Remove any reviews that became empty after preprocessing
 mask_train = tokenized_train.apply(len) > 0
 tokenized_train = tokenized_train[mask_train].reset_index(drop=True)
-y_resampled     = y_resampled[mask_train.values]
+y_resampled = y_resampled[mask_train.values]
 
 mask_val = tokenized_val.apply(len) > 0
 tokenized_val = tokenized_val[mask_val].reset_index(drop=True)
@@ -328,8 +328,8 @@ def encode(tokens):
     return [word2idx.get(tok, UNK_IDX) for tok in tokens]
 
 encoded_train = tokenized_train.apply(encode)
-encoded_val   = tokenized_val.apply(encode)
-encoded_test  = tokenized_test.apply(encode)
+encoded_val = tokenized_val.apply(encode)
+encoded_test = tokenized_test.apply(encode)
 
 # Free tokenized series from memory
 del tokenized_train, tokenized_val, tokenized_test
@@ -369,8 +369,8 @@ X_test_padded = np.array(
 
 # Convert the targets into array format
 y_train_array = np.array(y_resampled, dtype=np.int64)
-y_val_array   = np.array(y_val,       dtype=np.int64)
-y_test_array  = np.array(y_test,      dtype=np.int64)
+y_val_array = np.array(y_val, dtype=np.int64)
+y_test_array = np.array(y_test, dtype=np.int64)
 
 # Free encoded sequences and label series from memory
 del encoded_train, encoded_val, encoded_test, y_resampled, y_val, y_test
@@ -396,12 +396,13 @@ class ReviewDataset(Dataset):
     def __getitem__(self, idx: int):
         return self.X[idx], self.y[idx]
 
-
+# Global batch hyperparameter
 BATCH_SIZE = 64
 
+# Establish data loaders for each split
 train_loader = DataLoader(ReviewDataset(X_train_padded, y_train_array), batch_size=BATCH_SIZE, shuffle=True)
-val_loader   = DataLoader(ReviewDataset(X_val_padded,   y_val_array),   batch_size=BATCH_SIZE, shuffle=False)
-test_loader  = DataLoader(ReviewDataset(X_test_padded,  y_test_array),  batch_size=BATCH_SIZE, shuffle=False)
+val_loader = DataLoader(ReviewDataset(X_val_padded, y_val_array), batch_size=BATCH_SIZE, shuffle=False)
+test_loader = DataLoader(ReviewDataset(X_test_padded, y_test_array), batch_size=BATCH_SIZE, shuffle=False)
 
 # Free numpy splits from memory as dataloader holds copies
 del X_train_padded, X_val_padded, X_test_padded, y_train_array, y_val_array, y_test_array
@@ -501,10 +502,6 @@ class BiGRUTransformer(nn.Module):
  
         # apply self-attention over the full BiGRU sequence
         attn_out, _ = self.attention(gru_out, key_padding_mask=padding_mask)
- 
-        # global mean pooling over the attended sequence collapses (batch, seq_len, dim)
-        # to (batch, dim); mean is taken only over non-padding positions to avoid
-        # diluting the representation with zero-padded slots
 
         # convert padding tokens to value 0
         attn_out = attn_out.masked_fill(padding_mask.unsqueeze(-1), 0.0)
@@ -643,12 +640,12 @@ def evaluate(model, loader, criterion, device):
  
     # Compute evaluation metrics
     metrics = {
-        "loss":      avg_loss,
-        "accuracy":  accuracy_score(all_labels, all_preds),
+        "loss": avg_loss,
+        "accuracy": accuracy_score(all_labels, all_preds),
         "precision": precision_score(all_labels, all_preds, average='macro', zero_division=0),
-        "recall":    recall_score(all_labels, all_preds, average='macro', zero_division=0),
-        "f1":        f1_score(all_labels, all_preds, average='macro', zero_division=0),
-        "auc":       roc_auc_score(all_labels, all_probs, multi_class='ovr', average='macro'),
+        "recall": recall_score(all_labels, all_preds, average='macro', zero_division=0),
+        "f1": f1_score(all_labels, all_preds, average='macro', zero_division=0),
+        "auc": roc_auc_score(all_labels, all_probs, multi_class='ovr', average='macro'),
     }
  
     return metrics, all_preds, all_labels, all_probs
@@ -672,12 +669,12 @@ for epoch in range(1, EPOCHS + 1):
     val_metrics, _, _, _ = evaluate(model, val_loader, criterion, device)
  
     # Write evaluation metrics to log file for tensorboard tracking
-    writer.add_scalar("Loss/train",     train_loss,              epoch)
-    writer.add_scalar("Loss/val",       val_metrics["loss"],     epoch)
-    writer.add_scalar("Accuracy/train", train_acc,               epoch)
-    writer.add_scalar("Accuracy/val",   val_metrics["accuracy"], epoch)
-    writer.add_scalar("F1/val",         val_metrics["f1"],       epoch)
-    writer.add_scalar("AUC/val",        val_metrics["auc"],      epoch)
+    writer.add_scalar("Loss/train", train_loss, epoch)
+    writer.add_scalar("Loss/val", val_metrics["loss"], epoch)
+    writer.add_scalar("Accuracy/train", train_acc, epoch)
+    writer.add_scalar("Accuracy/val", val_metrics["accuracy"], epoch)
+    writer.add_scalar("F1/val", val_metrics["f1"], epoch)
+    writer.add_scalar("AUC/val", val_metrics["auc"], epoch)
  
     # Display evaluation metrics on a per-epoch basis
     print(f"Epoch {epoch:02d}/{EPOCHS} | ")
@@ -690,10 +687,10 @@ for epoch in range(1, EPOCHS + 1):
         best_val_loss = val_metrics["loss"]
         epochs_without_improvement = 0
         torch.save(model.state_dict(), best_model_path)
-        print(f"  ✓ Val loss improved - checkpoint saved to {best_model_path}")
+        print(f"  SUCCESS: Val loss improved - checkpoint saved to {best_model_path}")
     else:
         epochs_without_improvement += 1
-        print(f"  No improvement ({epochs_without_improvement}/{PATIENCE})")
+        print(f" FAILURE: No improvement ({epochs_without_improvement}/{PATIENCE})")
         if epochs_without_improvement >= PATIENCE:
             print(f"\nEarly stopping triggered at epoch {epoch}.")
             break
@@ -730,19 +727,19 @@ print(confusion_matrix(final_labels, final_preds))
 # Log hyperparameters alongside final test metrics for the reproducibility package/ablation study
 os.makedirs("results", exist_ok=True)
 results_row = {
-    "run":          run_name,
-    "hidden_dim":   HIDDEN_DIM,
-    "num_heads":    NUM_HEADS,
-    "dropout":      DROPOUT,
-    "epochs":       EPOCHS,
-    "lr":           LR,
-    "batch_size":   BATCH_SIZE,
-    "patience":     PATIENCE,
-    "accuracy":     final_metrics["accuracy"],
-    "precision":    final_metrics["precision"],
-    "recall":       final_metrics["recall"],
-    "f1":           final_metrics["f1"],
-    "auc":          final_metrics["auc"],
+    "run": run_name,
+    "hidden_dim": HIDDEN_DIM,
+    "num_heads": NUM_HEADS,
+    "dropout": DROPOUT,
+    "epochs": EPOCHS,
+    "lr": LR,
+    "batch_size": BATCH_SIZE,
+    "patience": PATIENCE,
+    "accuracy": final_metrics["accuracy"],
+    "precision": final_metrics["precision"],
+    "recall": final_metrics["recall"],
+    "f1": final_metrics["f1"],
+    "auc": final_metrics["auc"],
 }
 results_df = pd.DataFrame([results_row])
 results_path = os.path.join("results", "novel_model_results.csv")
