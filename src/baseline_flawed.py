@@ -59,7 +59,7 @@ print(f"\n{df.head(3)}")
 # Drop irrelevant features
 df = df.drop(["Id", "ProductId", "UserId", "ProfileName", "HelpfulnessNumerator", "HelpfulnessDenominator", "Time", "Summary"], axis=1)
 
-# Convert numeric rating ranges to three-class polarity
+# Convert numeric star rating ranges to three-class polarity
 def map_sentiment(score):
     if score <= 2:
         return 0   # Negative
@@ -67,8 +67,10 @@ def map_sentiment(score):
         return 1   # Neutral
     else:
         return 2   # Positive
- 
+    
+#  Add numeric sentiment
 df['Sentiment'] = df['Score'].apply(map_sentiment)
+# Drop string sentiment
 df = df.drop('Score', axis=1)
 
 # Display pre-SMOTE class distribution
@@ -99,7 +101,6 @@ gc.collect()
 
 print(f"TF-IDF matrix shape: {X_dense.shape}")
 
-
 # Apply SMOTE before split (generally incorrect due to data leakage, but accurate for replication)
 print("\nApplying SMOTE to full dataset (before split)...")
 smote = SMOTE(sampling_strategy='not majority')
@@ -110,6 +111,7 @@ del smote
 gc.collect()
  
 print(f"\nClass distribution after SMOTE:")
+# Display count of all unqiue sentiment classes after synethetic samples have been genereated
 unique, counts = np.unique(y_resampled, return_counts=True)
 for cls, cnt in zip(unique, counts):
     label = "";
@@ -131,7 +133,7 @@ n_original = len(X_text)
 X_text_reset = X_text.reset_index(drop=True)
 y_original = y.reset_index(drop=True).values
 
-# Free the original X_text and y series - X_text_reset and y_original are the working copies
+# Free the original X_text and y series, X_text_reset and y_original are the working copies
 del X_text, y
 gc.collect()
  
@@ -257,6 +259,7 @@ print(f"Embedding matrix shape: {embedding_matrix.shape}")
 def encode(tokens):
     return [word2idx.get(tok, UNK_IDX) for tok in tokens]
 
+# encode all tokens
 encoded_sequences = tokenized.apply(encode)
 
 # Free tokenized from memory
@@ -293,8 +296,8 @@ y_array = np.array(y_resampled, dtype=np.int64)
 del encoded_sequences, y_resampled
 gc.collect()
  
-print(f"\nFinal padded input shape : {X_padded.shape}")
-print(f"Final label array shape  : {y_array.shape}")
+print(f"\nFinal padded input shape: {X_padded.shape}")
+print(f"Final label array shape: {y_array.shape}")
 
 # ==================== Train / Test Split ====================
 # validation set and random_state omitted to replicates the paper's missing seed
@@ -309,8 +312,8 @@ X_train, X_test, y_train, y_test = train_test_split(
 del X_padded, y_array
 gc.collect()
  
-print(f"\nTrain size : {len(X_train)}")
-print(f"Test size  : {len(X_test)}")
+print(f"\nTrain size: {len(X_train)}")
+print(f"Test size: {len(X_test)}")
  
  
 # Loop through the train and test sets and display the class distribution for each seperately
@@ -335,9 +338,10 @@ class ReviewDataset(Dataset):
     def __getitem__(self, idx: int):
         return self.X[idx], self.y[idx]
 
-
+# Global Batch Size Hyperparameter
 BATCH_SIZE = 64
  
+#  Initalise data loaders for each data split
 train_loader = DataLoader(ReviewDataset(X_train, y_train), batch_size=BATCH_SIZE, shuffle=True)
 test_loader  = DataLoader(ReviewDataset(X_test, y_test), batch_size=BATCH_SIZE, shuffle=False)
 

@@ -128,9 +128,9 @@ y_train = y_train.reset_index(drop=True)
 y_val = y_val.reset_index(drop=True)
 y_test = y_test.reset_index(drop=True)
 
-print(f"\nTrain size : {len(X_train_text)}")
-print(f"Val size   : {len(X_val_text)}")
-print(f"Test size  : {len(X_test_text)}")
+print(f"\nTrain size: {len(X_train_text)}")
+print(f"Val size: {len(X_val_text)}")
+print(f"Test size: {len(X_test_text)}")
 
 # Loop through the train, val, and test sets and display the class distribution for each separately
 for split_name, split_y in [("Train", y_train), ("Val", y_val), ("Test", y_test)]:

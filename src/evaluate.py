@@ -43,16 +43,16 @@ from tensorboard.backend.event_processing.event_accumulator import EventAccumula
  
 FIGURES_DIR = "figures"
 RESULTS_DIR = "results"
-LOGS_DIR    = os.path.join(RESULTS_DIR, "logs")
+LOGS_DIR = os.path.join(RESULTS_DIR, "logs")
  
-CLASS_NAMES  = ['Negative', 'Neutral', 'Positive']
-NUM_CLASSES  = len(CLASS_NAMES)
+CLASS_NAMES = ['Negative', 'Neutral', 'Positive']
+NUM_CLASSES = len(CLASS_NAMES)
  
 # Consistent colour and label mapping used across all figures
 MODEL_STYLES = {
-    "baseline_flawed":     {"label": "BiGRU+LSTM (Flawed)",      "color": "#e74c3c", "linestyle": "--"},
-    "baseline_corrected":  {"label": "BiGRU+LSTM (Corrected)",   "color": "#3498db", "linestyle": "-"},
-    "novel_model":         {"label": "BiGRU+Transformer",         "color": "#2ecc71", "linestyle": "-"},
+    "baseline_flawed": {"label": "BiGRU+LSTM (Flawed)", "color": "#e74c3c", "linestyle": "--"},
+    "baseline_corrected": {"label": "BiGRU+LSTM (Corrected)", "color": "#3498db", "linestyle": "-"},
+    "novel_model": {"label": "BiGRU+Transformer", "color": "#2ecc71", "linestyle": "-"},
 }
  
 os.makedirs(FIGURES_DIR, exist_ok=True)
@@ -74,7 +74,7 @@ def load_tb_scalars(run_prefix, tag):
     # Get all directories matching the pattern, sorted alphabetically (which is effectively sorted by time as only the timestamps differ under this pattern)
     candidates = sorted(glob.glob(pattern))
     if not candidates:
-        print(f"  [WARN] No TensorBoard run found for prefix '{run_prefix}'")
+        print(f"  ERROR: No TensorBoard run found for prefix '{run_prefix}'")
         return None, None
  
     # Use the most recently created run directory
@@ -86,12 +86,12 @@ def load_tb_scalars(run_prefix, tag):
     
     # Handle missing tags (ex. validation in baseline_flawed)
     if tag not in ea.Tags().get("scalars", []):
-        print(f"  [WARN] Tag '{tag}' not found in {run_dir}")
+        print(f"  ERROR: Tag '{tag}' not found in {run_dir}")
         return None, None
     
     # Extract run data
     events = ea.Scalars(tag)
-    steps  = np.array([e.step  for e in events])
+    steps = np.array([e.step  for e in events])
     values = np.array([e.value for e in events])
     return steps, values
 
@@ -117,14 +117,14 @@ def plot_loss_curves():
  
     # flawed baseline uses 'Loss/test'; corrected and novel use 'Loss/val'
     val_tag_map = {
-        "baseline_flawed":    "Loss/test",
+        "baseline_flawed": "Loss/test",
         "baseline_corrected": "Loss/val",
-        "novel_model":        "Loss/val",
+        "novel_model": "Loss/val",
     }
     val_label_map = {
-        "baseline_flawed":    "Test Loss",
+        "baseline_flawed": "Test Loss",
         "baseline_corrected": "Val Loss",
-        "novel_model":        "Val Loss",
+        "novel_model": "Val Loss",
     }
     
     # loop through each of the three models
@@ -167,7 +167,7 @@ def plot_loss_curves():
  
 # plot one vs. rest ROC curve for all models
 def plot_roc_curves():
-    print("\  Plotting ROC curves...")
+    print("\n Plotting ROC curves...")
     
     # generate a blank figure with subplots for each class
     fig, axes = plt.subplots(1, NUM_CLASSES, figsize=(5 * NUM_CLASSES, 4.5), sharey=True)
@@ -195,7 +195,7 @@ def plot_roc_curves():
             # produce false positve and true postive rates using roc_curve generation
             fpr, tpr, _ = roc_curve(labels_bin[:, cls_idx], probs[:, cls_idx])
             # calculate area under the ROC curve
-            roc_auc     = auc(fpr, tpr)
+            roc_auc = auc(fpr, tpr)
 
             # plot roc curve for current class
             axes[cls_idx].plot(
@@ -208,7 +208,7 @@ def plot_roc_curves():
     
     # Skip saving figure if nothing plotted
     if not any_plotted:
-        print("  No prediction files found — skipping ROC figure.")
+        print("  No prediction files found - skipping ROC figure.")
         plt.close(fig)
         return
     
@@ -217,7 +217,7 @@ def plot_roc_curves():
         ax = axes[cls_idx]
         # Add diagonal chance line
         ax.plot([0, 1], [0, 1], "k--", linewidth=1, alpha=0.5)
-        ax.set_title(f"ROC — {cls_name} (OvR)", fontsize=12)
+        ax.set_title(f"ROC - {cls_name} (OvR)", fontsize=12)
         ax.set_xlabel("False Positive Rate", fontsize=10)
         if cls_idx == 0:
             ax.set_ylabel("True Positive Rate", fontsize=10)
@@ -226,7 +226,7 @@ def plot_roc_curves():
         ax.set_xlim([0, 1])
         ax.set_ylim([0, 1.02])
  
-    fig.suptitle("ROC Curves — All Models (One-vs-Rest)", fontsize=13, y=1.02)
+    fig.suptitle("ROC Curves - All Models (One-vs-Rest)", fontsize=13, y=1.02)
     fig.tight_layout()
     save_fig(fig, "roc_curves_all_models")
 
@@ -256,7 +256,7 @@ def plot_confusion_matrices():
         # Plot the confusion matrix to the figure
         disp.plot(ax=ax, colorbar=True, cmap="Blues", values_format=".2f")
 
-        ax.set_title(f"Confusion Matrix — {style['label']}\n(row-normalised)", fontsize=12)
+        ax.set_title(f"Confusion Matrix - {style['label']}\n(row-normalised)", fontsize=12)
         fig.tight_layout()
         save_fig(fig, f"confusion_matrix_{run_prefix}")
 
@@ -268,15 +268,15 @@ def plot_accuracy_bar():
     
     # map model names to their csv outputs
     csv_map = {
-        "baseline_flawed":    os.path.join(RESULTS_DIR, "baseline_flawed_results.csv"),
+        "baseline_flawed": os.path.join(RESULTS_DIR, "baseline_flawed_results.csv"),
         "baseline_corrected": os.path.join(RESULTS_DIR, "baseline_corrected_results.csv"),
-        "novel_model":        os.path.join(RESULTS_DIR, "novel_model_results.csv"),
+        "novel_model": os.path.join(RESULTS_DIR, "novel_model_results.csv"),
     }
     
     # Initalize tracking variables
-    labels_list   = []
+    labels_list = []
     accuracy_list = []
-    color_list    = []
+    color_list = []
     
     # Loop through all three models
     for run_prefix, style in MODEL_STYLES.items():
@@ -330,19 +330,16 @@ def plot_accuracy_bar():
 def print_comparison_table():
     # Map model names to output data
     csv_map = {
-        "baseline_flawed":    (os.path.join(RESULTS_DIR, "baseline_flawed_results.csv"),
-                               "Flawed (SMOTE leak, no val set)"),
-        "baseline_corrected": (os.path.join(RESULTS_DIR, "baseline_corrected_results.csv"),
-                               "Corrected"),
-        "novel_model":        (os.path.join(RESULTS_DIR, "novel_model_results.csv"),
-                               "Corrected"),
+        "baseline_flawed": (os.path.join(RESULTS_DIR, "baseline_flawed_results.csv"),"Flawed (SMOTE leak, no val set)"),
+        "baseline_corrected": (os.path.join(RESULTS_DIR, "baseline_corrected_results.csv"),"Corrected"),
+        "novel_model": (os.path.join(RESULTS_DIR, "novel_model_results.csv"), "Corrected"),
     }
     
     # map model names to their detailed architecture
     model_labels = {
-        "baseline_flawed":    "BiGRU + LSTM",
+        "baseline_flawed": "BiGRU + LSTM",
         "baseline_corrected": "BiGRU + LSTM",
-        "novel_model":        "BiGRU + Transformer",
+        "novel_model": "BiGRU + Transformer",
     }
  
     print("\n" + "=" * 75)
@@ -410,5 +407,7 @@ if __name__ == "__main__":
     plot_roc_curves()
     plot_confusion_matrices()
     plot_accuracy_bar()
+    print_comparison_table()
+    print_per_class_metrics()
 
     print("\n========= evaluate.py Complete - all figures saved to figures/ =========")

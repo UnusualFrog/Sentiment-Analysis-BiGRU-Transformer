@@ -257,7 +257,7 @@ gc.collect()
 # Remove any reviews that became empty after preprocessing
 mask_train = tokenized_train.apply(len) > 0
 tokenized_train = tokenized_train[mask_train].reset_index(drop=True)
-y_resampled     = y_resampled[mask_train.values]
+y_resampled = y_resampled[mask_train.values]
 
 mask_val = tokenized_val.apply(len) > 0
 tokenized_val = tokenized_val[mask_val].reset_index(drop=True)
@@ -328,8 +328,8 @@ def encode(tokens):
     return [word2idx.get(tok, UNK_IDX) for tok in tokens]
 
 encoded_train = tokenized_train.apply(encode)
-encoded_val   = tokenized_val.apply(encode)
-encoded_test  = tokenized_test.apply(encode)
+encoded_val = tokenized_val.apply(encode)
+encoded_test = tokenized_test.apply(encode)
 
 # Free tokenized series from memory
 del tokenized_train, tokenized_val, tokenized_test
@@ -369,8 +369,8 @@ X_test_padded = np.array(
 
 # Convert the targets into array format
 y_train_array = np.array(y_resampled, dtype=np.int64)
-y_val_array   = np.array(y_val,       dtype=np.int64)
-y_test_array  = np.array(y_test,      dtype=np.int64)
+y_val_array = np.array(y_val, dtype=np.int64)
+y_test_array = np.array(y_test, dtype=np.int64)
 
 # Free encoded sequences and label series from memory
 del encoded_train, encoded_val, encoded_test, y_resampled, y_val, y_test

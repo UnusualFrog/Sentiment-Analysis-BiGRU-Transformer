@@ -62,10 +62,10 @@ torch.cuda.manual_seed_all(GLOBAL_SEED)
 #  I/O directories
 FIGURES_DIR = "figures"
 RESULTS_DIR = "results"
-LOGS_DIR    = os.path.join(RESULTS_DIR, "logs")
+LOGS_DIR = os.path.join(RESULTS_DIR, "logs")
 os.makedirs(FIGURES_DIR, exist_ok=True)
 os.makedirs(RESULTS_DIR, exist_ok=True)
-os.makedirs("models",    exist_ok=True)
+os.makedirs("models", exist_ok=True)
  
 # Sentiment-Class info
 CLASS_NAMES = ['Negative', 'Neutral', 'Positive']
@@ -153,8 +153,8 @@ y_test = y_test.reset_index(drop=True)
  
 #  Display split information
 print(f"\nTrain size : {len(X_train_text)}")
-print(f"Val size   : {len(X_val_text)}")
-print(f"Test size  : {len(X_test_text)}")
+print(f"Val size : {len(X_val_text)}")
+print(f"Test size : {len(X_test_text)}")
  
 # Loop through the train, val, and test sets and display the class distribution for each separately
 for split_name, split_y in [("Train", y_train), ("Val", y_val), ("Test", y_test)]:
@@ -282,7 +282,7 @@ gc.collect()
 # Remove any reviews that became empty after preprocessing
 mask_train = tokenized_train.apply(len) > 0
 tokenized_train = tokenized_train[mask_train].reset_index(drop=True)
-y_resampled     = y_resampled[mask_train.values]
+y_resampled  = y_resampled[mask_train.values]
  
 mask_val = tokenized_val.apply(len) > 0
 tokenized_val = tokenized_val[mask_val].reset_index(drop=True)
@@ -320,7 +320,6 @@ w2v_model = Word2Vec(
  
 vocab_size = len(w2v_model.wv)
 print(f"Word2Vec vocabulary size: {vocab_size}")
- 
  
 # ==================== Vocabulary Index & Embedding Matrix ====================
 # Reserve index 0 and 1 for padding and UNK tokens respectively
@@ -435,8 +434,8 @@ del X_train_padded, X_val_padded, X_test_padded, y_train_array, y_val_array, y_t
 gc.collect()
  
 print(f"\nTrain batches : {len(train_loader)}")
-print(f"Val batches   : {len(val_loader)}")
-print(f"Test batches  : {len(test_loader)}")
+print(f"Val batches : {len(val_loader)}")
+print(f"Test batches : {len(test_loader)}")
 print("\n========= Preprocessing Complete - Beginning Ablation Variants =========")
 
 # ==================== Model Definitions ====================
@@ -686,7 +685,7 @@ NUM_CLASSES = 3     # 3-class sentiment classification
 DROPOUT = 0.3       # 30% dropout rate
 EPOCHS = 10         # 10 Training epochs
 LR = 1e-3           # learning rate
-PATIENCE    = 3     # early stopping patience
+PATIENCE = 3     # early stopping patience
  
 #  Verifty GPU usage
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
