@@ -145,11 +145,11 @@ gc.collect()
  
 # Reset indices on all splits for downstream consistency
 X_train_text = X_train_text.reset_index(drop=True)
-X_val_text   = X_val_text.reset_index(drop=True)
-X_test_text  = X_test_text.reset_index(drop=True)
+X_val_text = X_val_text.reset_index(drop=True)
+X_test_text = X_test_text.reset_index(drop=True)
 y_train = y_train.reset_index(drop=True)
-y_val   = y_val.reset_index(drop=True)
-y_test  = y_test.reset_index(drop=True)
+y_val = y_val.reset_index(drop=True)
+y_test = y_test.reset_index(drop=True)
  
 #  Display split information
 print(f"\nTrain size : {len(X_train_text)}")
@@ -272,8 +272,8 @@ def preprocess(text):
  
 print("\nRunning NLP preprocessing pipeline on all splits...")
 tokenized_train = X_train_text_resampled.apply(preprocess)
-tokenized_val   = X_val_text.apply(preprocess)
-tokenized_test  = X_test_text.apply(preprocess)
+tokenized_val = X_val_text.apply(preprocess)
+tokenized_test = X_test_text.apply(preprocess)
  
 # Free the raw text series for memory
 del X_train_text_resampled, X_val_text, X_test_text
@@ -352,8 +352,8 @@ def encode(tokens):
     return [word2idx.get(tok, UNK_IDX) for tok in tokens]
  
 encoded_train = tokenized_train.apply(encode)
-encoded_val   = tokenized_val.apply(encode)
-encoded_test  = tokenized_test.apply(encode)
+encoded_val = tokenized_val.apply(encode)
+encoded_test = tokenized_test.apply(encode)
  
 # Free tokenized series from memory
 del tokenized_train, tokenized_val, tokenized_test
@@ -424,8 +424,8 @@ BATCH_SIZE = 64
  
 # Construct dataloaders from pre-processed data splits
 train_loader = DataLoader(ReviewDataset(X_train_padded, y_train_array), batch_size=BATCH_SIZE, shuffle=True)
-val_loader   = DataLoader(ReviewDataset(X_val_padded,   y_val_array),   batch_size=BATCH_SIZE, shuffle=False)
-test_loader  = DataLoader(ReviewDataset(X_test_padded,  y_test_array),  batch_size=BATCH_SIZE, shuffle=False)
+val_loader = DataLoader(ReviewDataset(X_val_padded,   y_val_array), batch_size=BATCH_SIZE, shuffle=False)
+test_loader = DataLoader(ReviewDataset(X_test_padded,  y_test_array), batch_size=BATCH_SIZE, shuffle=False)
  
 # Retain the raw test labels array for figure generation after all variants finish
 y_test_array_for_figures = y_test_array.copy()
@@ -770,12 +770,292 @@ def evaluate(model, loader, criterion, device):
  
     # Compute evaluation metrics
     metrics = {
-        "loss":      avg_loss,
-        "accuracy":  accuracy_score(all_labels, all_preds),
+        "loss": avg_loss,
+        "accuracy": accuracy_score(all_labels, all_preds),
         "precision": precision_score(all_labels, all_preds, average='macro', zero_division=0),
-        "recall":    recall_score(all_labels, all_preds, average='macro', zero_division=0),
-        "f1":        f1_score(all_labels, all_preds, average='macro', zero_division=0),
-        "auc":       roc_auc_score(all_labels, all_probs, multi_class='ovr', average='macro'),
+        "recall": recall_score(all_labels, all_preds, average='macro', zero_division=0),
+        "f1": f1_score(all_labels, all_preds, average='macro', zero_division=0),
+        "auc": roc_auc_score(all_labels, all_probs, multi_class='ovr', average='macro'),
     }
  
     return metrics, all_preds, all_labels, all_probs
+# ==================== Train One Variant ====================
+ 
+# Fully train one variant with early stopping
+def train_variant(model, variant_name, epochs, patience):
+
+    criterion = nn.CrossEntropyLoss()
+    # Adam optimiser (assumed based on common practicces and reference in original work's literature review)
+    optimizer = torch.optim.Adam(model.parameters(), lr=LR)
+ 
+    # Each run is logged to a timestamped subdirectory so runs dont overwrite each other
+    run_name = f"ablation_{variant_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    # Log each run to the results directory with filename logs_{current_run_name}
+    writer   = SummaryWriter(log_dir=os.path.join(LOGS_DIR, run_name))
+ 
+    # Early stopping state
+    best_val_loss = float('inf')
+    epochs_without_improvement = 0
+    best_model_path = os.path.join("models", f"{run_name}_best.pt")
+ 
+    print(f"\n{'='*60}")
+    print(f"Variant: {variant_name}")
+    print(f"{'='*60}")
+    print(f"Parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
+ 
+    #  Loop through epochs
+    for epoch in range(1, epochs + 1):
+        # train model
+        train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer, device)
+        # evaluate on validation set to monitor for overfitting
+        val_metrics, _, _, _  = evaluate(model, val_loader, criterion, device)
+ 
+        # Write evaluation metrics to log file for tensorboard tracking
+        writer.add_scalar("Loss/train", train_loss, epoch)
+        writer.add_scalar("Loss/val", val_metrics["loss"], epoch)
+        writer.add_scalar("Accuracy/train", train_acc, epoch)
+        writer.add_scalar("Accuracy/val", val_metrics["accuracy"], epoch)
+        writer.add_scalar("F1/val", val_metrics["f1"], epoch)
+        writer.add_scalar("AUC/val", val_metrics["auc"], epoch)
+ 
+        # Display evaluation metrics on a per-epoch basis
+        print(f"Epoch {epoch:02d}/{epochs} | ")
+        print(f"Train Loss: {train_loss:.4f}  Train Acc: {train_acc:.4f} | ")
+        print(f"Val Loss: {val_metrics['loss']:.4f}  Val Acc: {val_metrics['accuracy']:.4f}  ")
+        print(f"F1: {val_metrics['f1']:.4f}  AUC: {val_metrics['auc']:.4f}")
+
+        # Early stopping will save checkpoint if val loss improved, otherwise increment patience counter
+        if val_metrics["loss"] < best_val_loss:
+            best_val_loss = val_metrics["loss"]
+            epochs_without_improvement = 0
+            torch.save(model.state_dict(), best_model_path)
+            print(f"  ✓ Val loss improved - checkpoint saved.")
+        else:
+            epochs_without_improvement += 1
+            print(f"  No improvement ({epochs_without_improvement}/{patience})")
+            if epochs_without_improvement >= patience:
+                print(f"\nEarly stopping triggered at epoch {epoch}.")
+                break
+ 
+    writer.close()
+ 
+    # Restore best checkpoint before final evaluation on held-out test set
+    print(f"Restoring best checkpoint from {best_model_path}...")
+    model.load_state_dict(torch.load(best_model_path, map_location=device))
+ 
+    # Evaluate model on the held-out test set after training is complete
+    final_metrics, final_preds, final_labels, final_probs = evaluate(
+        model, test_loader, criterion, device
+    )
+ 
+    print(f"\n--- {variant_name} Final Test Results ---")
+    print(f"Accuracy: {final_metrics['accuracy']:.4f}")
+    print(f"Macro F1: {final_metrics['f1']:.4f}")
+    print(f"AUC: {final_metrics['auc']:.4f}")
+    print(classification_report(final_labels, final_preds, target_names=CLASS_NAMES, digits=4))
+ 
+    # Save prediction arrays for evaluate.py (ROC curves, confusion matrices)
+    npz_path = os.path.join(RESULTS_DIR, f"ablation_{variant_name}_preds.npz")
+    np.savez(npz_path, labels=final_labels, preds=final_preds, probs=final_probs)
+    print(f"Predictions saved to {npz_path}")
+ 
+    return final_metrics, final_preds, final_labels, final_probs
+ 
+ 
+# # ==================== Run All Three Variants ====================
+ 
+# all_results = {}   # keyed by variant_name
+ 
+# # --- Variant 1: BiGRU only ---
+# torch.manual_seed(GLOBAL_SEED)
+# model_v1 = BiGRUOnly(
+#     embedding_matrix=embedding_matrix,
+#     hidden_dim=HIDDEN_DIM,
+#     num_classes=NUM_CLASSES,
+#     dropout=DROPOUT
+# ).to(device)
+ 
+# metrics_v1, preds_v1, labels_v1, probs_v1 = train_variant(
+#     model_v1, "bigru_only", EPOCHS, PATIENCE
+# )
+# all_results["BiGRU Only\n(no classifier)"] = metrics_v1
+ 
+# del model_v1
+# gc.collect()
+# torch.cuda.empty_cache()
+ 
+# # --- Variant 2: BiGRU + LSTM head ---
+# torch.manual_seed(GLOBAL_SEED)
+# model_v2 = BiGRULSTM(
+#     embedding_matrix=embedding_matrix,
+#     hidden_dim=HIDDEN_DIM,
+#     lstm_dim=LSTM_DIM,
+#     num_classes=NUM_CLASSES,
+#     dropout=DROPOUT
+# ).to(device)
+ 
+# metrics_v2, preds_v2, labels_v2, probs_v2 = train_variant(
+#     model_v2, "bigru_lstm", EPOCHS, PATIENCE
+# )
+# all_results["BiGRU + LSTM\n(corrected baseline)"] = metrics_v2
+ 
+# del model_v2
+# gc.collect()
+# torch.cuda.empty_cache()
+ 
+# # --- Variant 3: BiGRU + Transformer head ---
+# torch.manual_seed(GLOBAL_SEED)
+# model_v3 = BiGRUTransformer(
+#     embedding_matrix=embedding_matrix,
+#     hidden_dim=HIDDEN_DIM,
+#     num_heads=NUM_HEADS,
+#     num_classes=NUM_CLASSES,
+#     dropout=DROPOUT
+# ).to(device)
+ 
+# metrics_v3, preds_v3, labels_v3, probs_v3 = train_variant(
+#     model_v3, "bigru_transformer", EPOCHS, PATIENCE
+# )
+# all_results["BiGRU + Transformer\n(proposed)"] = metrics_v3
+ 
+# del model_v3
+# gc.collect()
+# torch.cuda.empty_cache()
+ 
+ 
+# # ==================== Save Ablation Results CSV ====================
+ 
+# results_path = os.path.join(RESULTS_DIR, "ablation_results.csv")
+# rows = []
+# for variant_label, metrics in all_results.items():
+#     rows.append({
+#         "variant":   variant_label.replace("\n", " "),
+#         "accuracy":  metrics["accuracy"],
+#         "precision": metrics["precision"],
+#         "recall":    metrics["recall"],
+#         "f1":        metrics["f1"],
+#         "auc":       metrics["auc"],
+#     })
+ 
+# pd.DataFrame(rows).to_csv(results_path, index=False)
+# print(f"\nAblation results saved to {results_path}")
+ 
+ 
+# # ==================== Print Ablation Table ====================
+ 
+# print("\n" + "=" * 65)
+# print("ABLATION STUDY RESULTS TABLE")
+# print("=" * 65)
+# print(f"{'Variant':<35} {'Accuracy':>8} {'Macro F1':>8} {'AUC':>6}")
+# print("-" * 65)
+# for row in rows:
+#     print(f"{row['variant']:<35} {row['accuracy']:>8.4f} {row['f1']:>8.4f} {row['auc']:>6.4f}")
+# print("=" * 65)
+ 
+ 
+# # ==================== Figure 5: Per-class F1 Bar Chart ====================
+ 
+# def plot_per_class_f1():
+#     """
+#     Grouped bar chart showing per-class F1 for all three ablation variants.
+#     Highlights minority-class (Negative, Neutral) improvements across variants.
+#     """
+#     print("\n[5/6] Plotting per-class F1 bar chart...")
+ 
+#     # Compute per-class F1 for each variant
+#     variants_data = [
+#         ("BiGRU Only",          labels_v1, preds_v1),
+#         ("BiGRU + LSTM",        labels_v2, preds_v2),
+#         ("BiGRU + Transformer", labels_v3, preds_v3),
+#     ]
+ 
+#     # f1_matrix[variant_idx][class_idx]
+#     f1_matrix = []
+#     for _, labels, preds in variants_data:
+#         per_class_f1 = f1_score(labels, preds, average=None, zero_division=0)
+#         f1_matrix.append(per_class_f1)
+ 
+#     variant_names = [v[0] for v in variants_data]
+#     n_variants    = len(variant_names)
+#     n_classes     = NUM_CLASSES
+ 
+#     bar_width  = 0.22
+#     x          = np.arange(n_classes)
+#     colors     = ["#e74c3c", "#3498db", "#2ecc71"]
+ 
+#     fig, ax = plt.subplots(figsize=(9, 5))
+ 
+#     for i, (variant_name, f1_vals) in enumerate(zip(variant_names, f1_matrix)):
+#         offset = (i - n_variants / 2 + 0.5) * bar_width
+#         bars = ax.bar(
+#             x + offset, f1_vals,
+#             width=bar_width,
+#             label=variant_name,
+#             color=colors[i],
+#             edgecolor="black",
+#             linewidth=0.6
+#         )
+#         # Annotate each bar
+#         for bar, val in zip(bars, f1_vals):
+#             ax.text(
+#                 bar.get_x() + bar.get_width() / 2,
+#                 bar.get_height() + 0.005,
+#                 f"{val:.3f}",
+#                 ha="center", va="bottom", fontsize=8
+#             )
+ 
+#     ax.set_xticks(x)
+#     ax.set_xticklabels(CLASS_NAMES, fontsize=11)
+#     ax.set_ylabel("F1-score", fontsize=11)
+#     ax.set_ylim(0, 1.1)
+#     ax.set_title("Per-class F1 - Ablation Study", fontsize=13)
+#     ax.legend(fontsize=9, loc="lower right")
+#     ax.grid(True, axis="y", alpha=0.3)
+#     ax.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.2f"))
+#     fig.tight_layout()
+#     save_fig(fig, "ablation_per_class_f1")
+ 
+ 
+# # ==================== Figure 6: Overall Accuracy Bar Chart (Ablation) ====================
+ 
+# def plot_ablation_accuracy():
+#     """
+#     Bar chart comparing overall test accuracy across the three ablation variants.
+#     Complements the per-class chart and maps directly to the ablation table.
+#     """
+#     print("\n[6/6] Plotting ablation accuracy bar chart...")
+ 
+#     variant_names = list(all_results.keys())
+#     accuracies    = [m["accuracy"] for m in all_results.values()]
+#     colors        = ["#e74c3c", "#3498db", "#2ecc71"]
+ 
+#     fig, ax = plt.subplots(figsize=(8, 5))
+#     bars = ax.bar(
+#         variant_names, accuracies,
+#         color=colors, width=0.45,
+#         edgecolor="black", linewidth=0.7
+#     )
+ 
+#     for bar, acc in zip(bars, accuracies):
+#         ax.text(
+#             bar.get_x() + bar.get_width() / 2,
+#             bar.get_height() + 0.003,
+#             f"{acc:.4f}",
+#             ha="center", va="bottom", fontsize=10, fontweight="bold"
+#         )
+ 
+#     ax.set_ylim(0, min(1.0, max(accuracies) + 0.08))
+#     ax.set_ylabel("Test Accuracy", fontsize=11)
+#     ax.set_title("Overall Accuracy - Ablation Study", fontsize=13)
+#     ax.yaxis.set_major_formatter(mticker.PercentFormatter(xmax=1.0, decimals=1))
+#     ax.grid(True, axis="y", alpha=0.3)
+#     fig.tight_layout()
+#     save_fig(fig, "ablation_accuracy_bar")
+ 
+ 
+# # ==================== Generate Ablation Figures ====================
+ 
+# plot_per_class_f1()
+# plot_ablation_accuracy()
+ 
+# print("\n========= ablation.py Complete - results and figures saved =========")
