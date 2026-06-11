@@ -54,6 +54,7 @@ project/
 ---
 
 ## 1. Environment Setup
+Please note, this project was developed for Linux evironment. Although it has been successfully reproduced on a windows machine, testing is limited so if issues occur, try running through WSL or a virtual machine.
 
 ### Step 1 — Create and activate a virtual environment
 Ensure Python 3.11 is used 
