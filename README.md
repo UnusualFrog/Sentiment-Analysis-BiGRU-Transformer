@@ -56,6 +56,7 @@ project/
 ## 1. Environment Setup
 
 ### Step 1 — Create and activate a virtual environment
+Ensure Python 3.11 is used 
 
 ```bash
 python3.11 -m venv venv
